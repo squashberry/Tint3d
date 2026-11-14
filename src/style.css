@@ -304,3 +304,40 @@ button { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
 .radar-card, .stat-pill, .match-hud { background: rgba(12,32,39,.82); }
 .weapon-card strong { color: #fff5df; }
 .weapon-symbol { background: rgba(32,216,233,.15); }
+
+
+/* Gameplay input: never select HUD copy or drag interface elements while aiming. */
+#game-root,
+#game-root *,
+#game-root *::before,
+#game-root *::after {
+  -webkit-user-select: none !important;
+  user-select: none !important;
+  -webkit-touch-callout: none;
+}
+#game-root {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+#game-stage,
+#game-stage canvas {
+  touch-action: none;
+  -webkit-user-drag: none;
+  user-drag: none;
+}
+#game-root button,
+#game-root a,
+#game-root canvas {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-drag: none;
+  user-drag: none;
+}
+#game-root button:focus:not(:focus-visible),
+#game-root a:focus:not(:focus-visible) {
+  outline: none !important;
+  box-shadow: none;
+}
+#game-root ::selection {
+  color: inherit;
+  background: transparent;
+}

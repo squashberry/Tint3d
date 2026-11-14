@@ -27,6 +27,13 @@ const ui = {
   eliminations: $('elimination-count'), hint: $('control-hint')
 };
 const isTouch = matchMedia('(pointer: coarse)').matches || navigator.maxTouchPoints > 0;
+
+document.addEventListener('selectstart', (event) => {
+  if (event.target.closest('#game-root')) event.preventDefault();
+});
+document.addEventListener('dragstart', (event) => {
+  if (event.target.closest('#game-root')) event.preventDefault();
+});
 if (isTouch) {
   document.body.classList.add('touch-device');
   ui.hint.textContent = 'LEFT STICK MOVE  ·  DRAG TO AIM  ·  TAP SPRAY';
@@ -636,8 +643,6 @@ const coverPieces = [
   [5.6, 0.62, 10.0, 4.0, 1.24, 2.0, 0x3e505c],
   [-10.2, 0.55, 5.8, 2.2, 1.1, 4.4, 0x314653],
   [10.1, 0.55, -6.2, 2.2, 1.1, 4.1, 0x314653],
-  [0, 0.55, -13.5, 5.5, 1.1, 1.1, 0x3e515b],
-  [0, 0.55, 13.5, 5.5, 1.1, 1.1, 0x3e515b]
 ];
 for (const c of coverPieces) block(...c.slice(0, 7), { solid: true });
 for (let i = 0; i < 7; i++) {
@@ -1924,7 +1929,7 @@ function createActor(team, variation, x, z, playerControlled = false) {
   scene.add(group);
   return actor;
 }
-const player = createActor(BLUE, 0, 0, 15.2, true);
+const player = createActor(BLUE, 0, 0, 17.2, true);
 const blueBots = [
   createActor(BLUE, 1, -8.8, 12.5),
   createActor(BLUE, 2, -4.5, 17),
@@ -2541,7 +2546,7 @@ function resetMatch() {
     actor.group.visible = true;
     const sign = actor.team === BLUE ? 1 : -1;
     const spread = actor.player ? 0 : (actor.variation - 2) * 2.2;
-    actor.position.set(spread, 0, sign * (actor.player ? 15.2 : 13.4 + (actor.variation % 2) * 2.2));
+    actor.position.set(spread, 0, sign * (actor.player ? 17.2 : 13.4 + (actor.variation % 2) * 2.2));
     actor.position.y = groundHeight(actor.position.x, actor.position.z);
     actor.velocity.set(0, 0, 0);
     actor.group.position.copy(actor.position);
@@ -2603,8 +2608,15 @@ $('sound-toggle').addEventListener('click', (event) => {
   event.currentTarget.textContent = soundOn ? '♫' : '♪';
   playPop(0.8);
 });
+let gamePointerLockActive = false;
 document.addEventListener('pointerlockchange', () => {
-  if (!document.pointerLockElement && gameStarted && !isTouch) pauseGame();
+  const locked = document.pointerLockElement === renderer.domElement;
+  if (locked) {
+    gamePointerLockActive = true;
+  } else if (gamePointerLockActive && gameStarted && !isTouch) {
+    gamePointerLockActive = false;
+    pauseGame();
+  }
 });
 document.addEventListener('mousemove', (event) => {
   if (document.pointerLockElement && gameStarted) {
