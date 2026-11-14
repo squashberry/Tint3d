@@ -538,6 +538,47 @@ const rampA = block(0, 0.52, 4.85, 5.8, 0.34, 4.25, 0x52636b, { rotation: { x: r
 const rampB = block(0, 0.52, -4.85, 5.8, 0.34, 4.25, 0x52636b, { rotation: { x: -rampAngle } });
 rampA.material = new THREE.MeshStandardMaterial({ map: deckTexture, roughness: 0.88, metalness: 0.12 });
 rampB.material = rampA.material;
+
+// Replace the tilted cuboids with proper solid wedge geometry. The movement
+// height profile already follows these exact 4.25 m approaches.
+function makeApproachWedge(width, rise, run, thickness) {
+  const x = width / 2;
+  const z = run / 2;
+  const p = [
+    -x, rise, -z,   x, rise, -z,
+    -x, 0, z,       x, 0, z,
+    -x, rise - thickness, -z, x, rise - thickness, -z,
+    -x, -thickness, z, x, -thickness, z
+  ];
+  const indices = [
+    0, 2, 1, 1, 2, 3,
+    4, 5, 6, 5, 7, 6,
+    0, 4, 6, 0, 6, 2,
+    1, 3, 7, 1, 7, 5,
+    0, 1, 5, 0, 5, 4,
+    2, 6, 7, 2, 7, 3
+  ];
+  const uvs = [
+    0, 0, 1, 0, 0, 1, 1, 1,
+    0, 0, 1, 0, 0, 1, 1, 1
+  ];
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(p, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+rampA.geometry.dispose();
+rampB.geometry.dispose();
+rampA.geometry = makeApproachWedge(5.8, 1.05, 4.25, 0.30);
+rampB.geometry = makeApproachWedge(5.8, 1.05, 4.25, 0.30);
+rampA.position.set(0, 0, 4.85);
+rampB.position.set(0, 0, -4.85);
+rampA.rotation.set(0, 0, 0);
+rampB.rotation.set(0, Math.PI, 0);
+rampA.scale.set(1, 1, 1);
+rampB.scale.set(1, 1, 1);
 for (let z = -6.5; z <= 6.5; z += 1) {
   block(-2.7, 0.12, z, 0.11, 0.06, 0.28, 0xffc06b);
   block(2.7, 0.12, z, 0.11, 0.06, 0.28, 0xffc06b);
@@ -605,6 +646,37 @@ function addHarbourCrane(x, z, accent = 0xff8b60, flip = 1) {
 }
 addHarbourCrane(-15, -27, 0x20d8e9, 1);
 addHarbourCrane(15, -27, 0xff7652, -1);
+
+// Hanging hoists, pulley blocks and suspended freight turn the cranes into
+// readable machines rather than bare geometric frames.
+function addCraneHoist(x, z, accent, cargoColor, swing = 1) {
+  const cableCurve = new THREE.LineCurve3(
+    new THREE.Vector3(x, 10.15, z),
+    new THREE.Vector3(x + swing * 0.38, 5.2, z)
+  );
+  mesh(
+    new THREE.TubeGeometry(cableCurve, 12, 0.035, 5, false),
+    mat('crane-cable', 0x1a3038, 0.62, 0.62),
+    scene
+  );
+  cylinder(x, 10.10, z, 0.34, 0.32, 0x425d62);
+  cylinder(x, 10.29, z, 0.22, 0.12, accent);
+  block(x + swing * 0.38, 5.08, z, 0.66, 0.44, 0.60, 0x293f46);
+  block(x + swing * 0.38, 4.82, z, 0.44, 0.13, 0.42, accent, { emissive: accent });
+  const cargo = block(x + swing * 0.38, 3.72, z, 2.25, 1.95, 2.05, cargoColor, {
+    roughness: 0.76, metalness: 0.20
+  });
+  cargo.material = new THREE.MeshStandardMaterial({
+    map: makeContainerTexture(cargoColor, 40 + Math.round((x + 20) * 2)),
+    roughness: 0.76, metalness: 0.18
+  });
+  block(x + swing * 0.38, 4.73, z, 2.30, 0.12, 2.10, accent);
+  for (const side of [-1, 1]) {
+    block(x + swing * 0.38 + side * 1.05, 3.72, z, 0.08, 1.90, 0.08, 0x9ba7a0);
+  }
+}
+addCraneHoist(-15.8, -27.0, 0x20d8e9, 0x285a66, 1);
+addCraneHoist(15.8, -27.0, 0xff7652, 0x77513d, -1);
 for (let i = 0; i < 6; i++) {
   const x = -29 + i * 11.5;
   const height = 5 + (i % 3) * 2.1;
