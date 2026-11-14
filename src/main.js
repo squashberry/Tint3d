@@ -1858,7 +1858,7 @@ function spawnSplash(position, team, groundOverride = null) {
     dot.scale.set(scale * (0.95 + Math.random() * 0.6), scale * 1.18, scale * (0.95 + Math.random() * 0.6));
     dot.rotation.z = angle;
     particles.push({
-      mesh: dot, life: 0.34 + Math.random() * 0.25, maxLife: 0.60,
+      mesh: dot, life: 0.34 + Math.random() * 0.25, maxLife: 0.60, groundY: ground,
       velocity: new THREE.Vector3(
         Math.cos(angle) * (1.55 + Math.random() * 2.6),
         1.45 + Math.random() * 2.3,
@@ -1886,7 +1886,7 @@ function spawnMotionSpray(actor, count = 2, strength = 0.7) {
     const size = 0.045 + Math.random() * (strength > 1.2 ? 0.075 : 0.045);
     drop.scale.set(size * (actor.sliding ? 2.4 : 1.55), size * 0.68, size * (actor.sliding ? 1.5 : 1.2));
     particles.push({
-      mesh: drop, life: 0.30 + Math.random() * 0.20, maxLife: 0.50,
+      mesh: drop, life: 0.30 + Math.random() * 0.20, maxLife: 0.50, groundY: surface,
       velocity: new THREE.Vector3(
         -movement.x * (0.45 + Math.random() * strength) + side.x * lateral * (actor.sliding ? 4.2 : 2.8),
         0.42 + Math.random() * (actor.sliding ? 1.4 : 0.85) * strength,
@@ -1907,6 +1907,7 @@ function spawnHitBurst(position, team, strength = 1) {
     const speed = (1.7 + Math.random() * 3.5) * strength;
     particles.push({
       mesh: drop, life: 0.30 + Math.random() * 0.24, maxLife: 0.54,
+      groundY: paintSurfaceHeight(position.x, position.z),
       velocity: new THREE.Vector3(Math.cos(angle) * speed, 1.0 + Math.random() * 2.2 * strength, Math.sin(angle) * speed)
     });
   }
@@ -1940,11 +1941,30 @@ function updateParticles(delta) {
       p.mesh.scale.y *= 1 + delta * 0.42;
       p.mesh.material.opacity = 0.86 * (1 - progress);
     } else {
+      const contactRadius = Math.max(0.018, Math.max(p.mesh.scale.x, p.mesh.scale.y, p.mesh.scale.z) * 0.34);
       p.mesh.position.addScaledVector(p.velocity, delta);
       p.velocity.y -= 6.5 * delta;
-      p.mesh.rotation.x += delta * 3.4;
-      p.mesh.rotation.z += delta * 2.2;
-      p.mesh.scale.multiplyScalar(1 - delta * 1.25);
+      if (Number.isFinite(p.groundY) && p.velocity.y < 0 &&
+          p.mesh.position.y <= p.groundY + contactRadius) {
+        p.mesh.position.y = p.groundY + contactRadius;
+        if (!p.bounced && p.velocity.y < -1.25) {
+          p.velocity.y *= -0.18;
+          p.velocity.x *= 0.56;
+          p.velocity.z *= 0.56;
+          p.bounced = true;
+        } else {
+          p.velocity.set(0, 0, 0);
+          p.settled = true;
+          p.life = Math.min(p.life, 0.22);
+        }
+      }
+      if (p.settled) {
+        p.mesh.scale.multiplyScalar(1 - delta * 2.2);
+      } else {
+        p.mesh.rotation.x += delta * 3.4;
+        p.mesh.rotation.z += delta * 2.2;
+        p.mesh.scale.multiplyScalar(1 - delta * 1.25);
+      }
     }
     if (p.life <= 0) {
       scene.remove(p.mesh);
@@ -2623,10 +2643,11 @@ function updatePlayer(delta) {
         : move.clone().normalize();
       if (direction.lengthSq() < 0.01) direction.set(Math.sin(yaw), 0, -Math.cos(yaw));
       player.sliding = true;
-      player.slideTimer = 0.98;
+      player.slideTimer = 1.02;
       player.slideCooldown = 1.08;
       player.slideDirection.copy(direction);
-      player.slideSpeed = Math.max(15.6, currentSpeed + 3.0);
+      const slideLaunch = sprintRequested ? 15.8 : 14.4;
+      player.slideSpeed = clamp(Math.max(slideLaunch, currentSpeed * 1.14), 13.8, 16.4);
       player.velocity.x = direction.x * player.slideSpeed;
       player.velocity.z = direction.z * player.slideSpeed;
       player.sprinting = false;
@@ -2670,9 +2691,10 @@ function updatePlayer(delta) {
   if (player.sliding) {
     player.slideTimer -= delta;
     if (moving) {
-      player.slideDirection.lerp(move, 1 - Math.exp(-1.35 * delta)).normalize();
+      const steering = 1 - Math.exp(-1.8 * delta);
+      player.slideDirection.lerp(move, steering).normalize();
     }
-    player.slideSpeed = Math.max(5.0, player.slideSpeed * Math.exp(-1.12 * delta));
+    player.slideSpeed = Math.max(4.8, player.slideSpeed * Math.exp(-0.76 * delta));
     player.velocity.x = player.slideDirection.x * player.slideSpeed;
     player.velocity.z = player.slideDirection.z * player.slideSpeed;
     if (player.slideTimer <= 0 || !player.grounded) {
@@ -2681,7 +2703,7 @@ function updatePlayer(delta) {
     }
   } else {
     const desiredVelocity = new THREE.Vector3(move.x * targetSpeed, 0, move.z * targetSpeed);
-    const response = player.grounded ? (moving ? 23 : 17) : 6.5;
+    const response = player.grounded ? (moving ? 19.5 : 13.5) : 5.8;
     player.velocity.lerp(desiredVelocity, 1 - Math.exp(-response * delta));
   }
 
@@ -2757,9 +2779,10 @@ function animateActor(actor, moving, delta = 0.016) {
   const t = actor.walkPhase || 0;
   const speed = clamp(moving, 0, 1);
   const running = speed > 0.05;
-  const sprinting = actor.flow > 0;
-  const stride = running ? Math.sin(t) * (sprinting ? 0.92 : 0.70) * speed : 0;
-  const bounce = running ? Math.abs(Math.sin(t * 2)) * (sprinting ? 0.09 : 0.065) : Math.sin(t * 0.9) * 0.012;
+  const sprinting = !!actor.sprinting || actor.flow > 0;
+  const stride = running ? Math.sin(t) * (sprinting ? 0.94 : 0.70) * speed : 0;
+  const idleBreath = running ? 0 : Math.sin(t * 1.45) * 0.014;
+  const bounce = running ? Math.abs(Math.sin(t * 2)) * (sprinting ? 0.105 : 0.065) : Math.sin(t * 0.9) * 0.010 + idleBreath;
   const shot = actor.group.userData.shotTimer || 0;
   actor.group.userData.shotTimer = Math.max(0, shot - delta);
   const shooting = clamp(shot / 0.30, 0, 1);
@@ -2772,7 +2795,11 @@ function animateActor(actor, moving, delta = 0.016) {
   const sliding = !!actor.sliding;
   c.torsoPivot.position.y = (sliding ? 0.61 : 0.80) + bounce + (actor.landImpact > 0 ? -actor.landImpact * 0.08 : 0);
   c.torsoPivot.rotation.x = sliding ? -0.72 : (running ? (sprinting ? -0.30 : -0.10) : Math.sin(t * 0.55) * 0.025);
-  c.torsoPivot.rotation.z = clamp(-actor.velocity.x * 0.009, -0.14, 0.14) + hitFactor * 0.16;
+  const facingRightSpeed =
+    actor.velocity.x * Math.cos(actor.group.rotation.y) +
+    actor.velocity.z * Math.sin(actor.group.rotation.y);
+  const movementLean = clamp(-facingRightSpeed * (sliding ? 0.024 : 0.016), -0.28, 0.28);
+  c.torsoPivot.rotation.z = movementLean + hitFactor * 0.16;
   c.torsoPivot.scale.y = 1 - Math.max(0, actor.landImpact || 0) * 0.12;
   c.torsoPivot.scale.x = 1 + Math.max(0, actor.landImpact || 0) * 0.06;
   c.head.rotation.x = Math.sin(t * 1.7) * 0.025 + air * 0.10 + shooting * 0.055;
@@ -2925,19 +2952,20 @@ function updateCamera(delta) {
     .add(new THREE.Vector3(0, height, 0));
   if (cameraShake > 0.001) {
     const shake = cameraShake;
-    desired.x += (Math.random() - 0.5) * shake;
-    desired.y += (Math.random() - 0.5) * shake * 0.72;
-    desired.z += (Math.random() - 0.5) * shake;
-    cameraShake = Math.max(0, cameraShake - delta * 2.8);
+    const time = clock.elapsedTime;
+    desired.x += Math.sin(time * 37.0) * shake * 0.42;
+    desired.y += Math.sin(time * 51.0 + 0.8) * shake * 0.24;
+    desired.z += Math.cos(time * 43.0 + 1.4) * shake * 0.32;
+    cameraShake = Math.max(0, cameraShake - delta * 3.4);
   }
-  camera.position.lerp(desired, 1 - Math.exp(-20 * delta));
+  camera.position.lerp(desired, 1 - Math.exp(-(sliding ? 17.5 : 19.5) * delta));
   const lookTarget = target.clone()
     .addScaledVector(forward, 3.35)
     .addScaledVector(right, shoulder)
     .add(new THREE.Vector3(0, 0.10 - pitch * 4.8, 0));
   camera.lookAt(lookTarget);
   const wantedFov = sliding ? 76 : (player.sprinting || player.flow > 0 ? 70 : 65);
-  camera.fov = THREE.MathUtils.damp(camera.fov, wantedFov, 8.5, delta);
+  camera.fov = THREE.MathUtils.damp(camera.fov, wantedFov, sliding ? 7.2 : 8.5, delta);
   camera.updateProjectionMatrix();
 }
 function updateMinimap(delta) {
