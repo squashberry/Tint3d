@@ -32,8 +32,8 @@ if (isTouch) {
 }
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x13202b);
-scene.fog = new THREE.Fog(0x13202b, 32, 76);
+scene.background = new THREE.Color(0x83c6ca);
+scene.fog = new THREE.Fog(0x83c6ca, 40, 94);
 const camera = new THREE.PerspectiveCamera(66, innerWidth / innerHeight, 0.1, 120);
 const renderer = new THREE.WebGLRenderer({
   antialias: false,
@@ -46,19 +46,22 @@ renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 1.25));
 renderer.setSize(innerWidth, innerHeight);
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.18;
+renderer.toneMappingExposure = 1.27;
 root.appendChild(renderer.domElement);
 
-scene.add(new THREE.HemisphereLight(0xb8e6f1, 0x202d39, 2.05));
-const sun = new THREE.DirectionalLight(0xffe7cb, 2.15);
-sun.position.set(-13, 24, 12);
+scene.add(new THREE.HemisphereLight(0xe6fcff, 0x58616a, 1.72));
+const sun = new THREE.DirectionalLight(0xfff2d9, 2.85);
+sun.position.set(-13, 25, 11);
 scene.add(sun);
-const fillLight = new THREE.PointLight(0x21c9e8, 35, 34, 2);
+const fillLight = new THREE.PointLight(0x42e7ef, 29, 42, 2);
 fillLight.position.set(-12, 8, -5);
 scene.add(fillLight);
-const warmLight = new THREE.PointLight(0xff7553, 27, 28, 2);
+const warmLight = new THREE.PointLight(0xff895f, 24, 38, 2);
 warmLight.position.set(13, 7, 10);
 scene.add(warmLight);
+const rimLight = new THREE.PointLight(0xa8ffdc, 18, 30, 2);
+rimLight.position.set(0, 7, 17);
+scene.add(rimLight);
 
 const shared = {
   box: new THREE.BoxGeometry(1, 1, 1),
@@ -72,6 +75,22 @@ const shared = {
   shoe: new THREE.BoxGeometry(0.34, 0.18, 0.49)
 };
 const mats = {};
+const toonRamp = new THREE.DataTexture(new Uint8Array([
+  38, 48, 62, 255, 92, 111, 122, 255,
+  176, 194, 188, 255, 255, 250, 229, 255
+]), 4, 1, THREE.RGBAFormat);
+toonRamp.magFilter = THREE.NearestFilter;
+toonRamp.minFilter = THREE.NearestFilter;
+toonRamp.generateMipmaps = false;
+toonRamp.needsUpdate = true;
+function toonMat(key, color, emissive = 0x000000) {
+  const id = 'toon-' + key;
+  if (!mats[id]) mats[id] = new THREE.MeshToonMaterial({
+    color, gradientMap: toonRamp, emissive,
+    emissiveIntensity: emissive ? 0.22 : 0
+  });
+  return mats[id];
+}
 function mat(key, color, roughness = 0.78, metalness = 0.08, emissive = 0x000000) {
   if (!mats[key]) mats[key] = new THREE.MeshStandardMaterial({
     color, roughness, metalness, emissive, emissiveIntensity: emissive ? 0.35 : 0
@@ -109,7 +128,13 @@ const paintCanvas = document.createElement('canvas');
 paintCanvas.width = 1024;
 paintCanvas.height = 1024;
 const paintCtx = paintCanvas.getContext('2d', { alpha: false });
-paintCtx.fillStyle = '#263542';
+paintCtx.fillStyle = '#35464d';
+paintCtx.fillRect(0, 0, 1024, 1024);
+const concreteWash = paintCtx.createLinearGradient(0, 0, 1024, 1024);
+concreteWash.addColorStop(0, 'rgba(215,230,218,.12)');
+concreteWash.addColorStop(.52, 'rgba(104,139,139,.025)');
+concreteWash.addColorStop(1, 'rgba(8,24,31,.26)');
+paintCtx.fillStyle = concreteWash;
 paintCtx.fillRect(0, 0, 1024, 1024);
 for (let i = 0; i < 2100; i++) {
   const x = Math.random() * 1024;
@@ -130,6 +155,28 @@ for (let i = 1; i < 8; i++) {
 paintCtx.strokeStyle = 'rgba(151,183,188,.24)';
 paintCtx.lineWidth = 5;
 paintCtx.strokeRect(22, 22, 980, 980);
+paintCtx.save();
+paintCtx.globalAlpha = 0.28;
+paintCtx.strokeStyle = '#d8e5d8';
+paintCtx.lineWidth = 5;
+paintCtx.setLineDash([18, 16]);
+paintCtx.beginPath();
+paintCtx.arc(512, 512, 185, 0, Math.PI * 2);
+paintCtx.stroke();
+paintCtx.setLineDash([]);
+paintCtx.fillStyle = '#dce7d9';
+paintCtx.font = '900 58px sans-serif';
+paintCtx.textAlign = 'center';
+paintCtx.fillText('BREAKWATER', 512, 470);
+paintCtx.font = '800 19px sans-serif';
+paintCtx.fillText('TINT3D FIELD SERIES  /  001', 512, 508);
+paintCtx.font = '900 34px sans-serif';
+paintCtx.fillText('T3', 512, 558);
+paintCtx.globalAlpha = 0.21;
+paintCtx.fillStyle = '#ffba74';
+paintCtx.fillRect(105, 130, 814, 11);
+paintCtx.fillRect(105, 883, 814, 11);
+paintCtx.restore();
 const paintTexture = new THREE.CanvasTexture(paintCanvas);
 paintTexture.colorSpace = THREE.SRGBColorSpace;
 paintTexture.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
@@ -193,6 +240,25 @@ function makeContainerTexture(baseColor, serial) {
   ctx.font = '700 9px sans-serif';
   ctx.fillStyle = 'rgba(235,246,235,.78)';
   ctx.fillText('BREAKWATER FREIGHT', 32, 65);
+  ctx.fillStyle = 'rgba(231,241,234,.8)';
+  ctx.font = '900 12px sans-serif';
+  ctx.fillText('PORT AUTHORITY  /  FIELD 01', 157, 45);
+  ctx.font = '800 8px sans-serif';
+  ctx.fillStyle = 'rgba(9,24,32,.72)';
+  ctx.fillText('CAUTION  //  KEEP CLEAR', 157, 61);
+  // Scratches, sun-fade and serial plate wear.
+  for (let i = 0; i < 28; i++) {
+    const sx = 12 + Math.random() * 488;
+    const sy = 6 + Math.random() * 244;
+    ctx.strokeStyle = i % 3 === 0 ? 'rgba(255,224,184,.18)' : 'rgba(7,20,26,.18)';
+    ctx.lineWidth = 1 + Math.random() * 2;
+    ctx.beginPath();
+    ctx.moveTo(sx, sy);
+    ctx.lineTo(sx + 5 + Math.random() * 19, sy + (Math.random() - .5) * 5);
+    ctx.stroke();
+  }
+  ctx.fillStyle = 'rgba(8,20,29,.24)';
+  ctx.fillRect(150, 25, 340, 10);
   ctx.fillStyle = 'rgba(255,255,255,.12)';
   ctx.fillRect(18, 218, 476, 4);
   ctx.fillStyle = '#ffb66d';
@@ -315,6 +381,35 @@ for (const x of [-10, 10]) block(x, 6.5, 0, 0.24, 4.0, 0.24, 0x344d58);
 for (let x = -9; x <= 9; x += 3) {
   block(x, 8.27, 0, 0.07, 0.24, 0.07, 0x20b9ca);
 }
+function addHarbourCrane(x, z, accent = 0xff8b60, flip = 1) {
+  const steel = 0x3b5961;
+  const columnH = 10.5;
+  for (const dx of [-2.8, 2.8]) {
+    block(x + dx, columnH / 2, z, 0.36, columnH, 0.36, steel);
+    block(x + dx, 0.22, z, 1.25, 0.42, 1.25, 0x263b43);
+    block(x + dx, columnH - 0.1, z, 0.82, 0.25, 0.82, accent, { emissive: accent });
+  }
+  block(x, columnH, z, 6.5, 0.42, 0.52, steel);
+  block(x + flip * 5.1, columnH + 0.05, z, 4.8, 0.28, 0.28, steel);
+  block(x + flip * 5.1, columnH - 0.35, z, 0.15, 0.85, 0.15, accent);
+  const diagonalA = block(x - 1.35, 6.2, z, 0.16, 7.3, 0.16, 0x69818a);
+  diagonalA.rotation.z = -0.39;
+  const diagonalB = block(x + 1.35, 6.2, z, 0.16, 7.3, 0.16, 0x69818a);
+  diagonalB.rotation.z = 0.39;
+  for (let i = 0; i < 5; i++) block(x - 1.9 + i * 0.95, 10.35, z, 0.07, 0.16, 0.07, accent);
+}
+addHarbourCrane(-15, -27, 0x20d8e9, 1);
+addHarbourCrane(15, -27, 0xff7652, -1);
+for (let i = 0; i < 6; i++) {
+  const x = -29 + i * 11.5;
+  const height = 5 + (i % 3) * 2.1;
+  block(x, height / 2, -34, 2.3, height, 2.3, i % 2 ? 0x557b7e : 0x42646f);
+  block(x, height + 0.10, -34, 2.45, 0.20, 2.45, 0xffb46f);
+}
+for (const x of [-24, 24]) {
+  cylinder(x, 5.1, -23, 0.23, 10.2, 0x37555e);
+  block(x, 10.35, -23, 1.05, 0.22, 1.05, 0xffc278, { emissive: 0x9b582a });
+}
 
 function groundHeight(x, z) {
   if (Math.abs(x) <= 5.05 && z >= -2.9 && z <= 2.9) return 1.05;
@@ -347,9 +442,17 @@ function moveOnGround(actor, dx, dz, radius = 0.46) {
 
 
 // Small painted details on the arena floor.
-paintCtx.fillStyle = 'rgba(221,236,225,.20)';
+paintCtx.fillStyle = 'rgba(221,236,225,.18)';
 paintCtx.fillRect(492, 80, 40, 864);
 paintCtx.fillRect(80, 492, 864, 40);
+paintCtx.save();
+paintCtx.translate(512, 160);
+paintCtx.rotate(-Math.PI / 2);
+paintCtx.fillStyle = 'rgba(235,245,230,.30)';
+paintCtx.font = '900 24px sans-serif';
+paintCtx.textAlign = 'center';
+paintCtx.fillText('KEEP MOVING  /  KEEP PAINTING', 0, 0);
+paintCtx.restore();
 paintTexture.needsUpdate = true;
 
 const owners = new Int8Array(GRID * GRID);
@@ -617,17 +720,17 @@ function updateParticles(delta) {
 function makeCharacter(team, variation = 0) {
   const group = new THREE.Group();
   const palette = TEAM[team];
-  const bodyMat = mat('char-body-' + team, team === BLUE ? 0x159bb4 : 0xd85c46, 0.58, 0.08);
-  const trimMat = mat('char-trim-' + team, team === BLUE ? 0x092f45 : 0x54212c, 0.55, 0.15);
-  const clothMat = mat('char-cloth-' + team, team === BLUE ? 0x25384a : 0x44333b, 0.83, 0.03);
-  const accentMat = mat('char-accent-' + team, team === BLUE ? 0x20d8e9 : 0xff7652, 0.48, 0.18, team === BLUE ? 0x087e9a : 0x8b3025);
+  const bodyMat = toonMat('char-body-' + team, team === BLUE ? 0x159bb4 : 0xd85c46, 0.58, 0.08);
+  const trimMat = toonMat('char-trim-' + team, team === BLUE ? 0x092f45 : 0x54212c, 0.55, 0.15);
+  const clothMat = toonMat('char-cloth-' + team, team === BLUE ? 0x25384a : 0x44333b, 0.83, 0.03);
+  const accentMat = toonMat('char-accent-' + team, team === BLUE ? 0x20d8e9 : 0xff7652, 0.48, 0.18, team === BLUE ? 0x087e9a : 0x8b3025);
   const skinColors = [0xb66e4c, 0xd39269, 0x8b523f, 0xd6a078, 0x9d6349];
-  const skin = mat('skin-' + variation, skinColors[variation % skinColors.length], 0.72, 0.02);
+  const skin = toonMat('skin-' + variation, skinColors[variation % skinColors.length], 0.72, 0.02);
   const hairColors = [0x17252b, 0x3e2522, 0x69462d, 0x202a3b, 0x4d293e];
-  const hair = mat('hair-' + variation, hairColors[variation % hairColors.length], 0.76, 0.02);
-  const white = mat('eye-white', 0xf5f2df, 0.42, 0.02);
-  const dark = mat('eye-dark', 0x12202a, 0.4, 0.02);
-  const sneaker = mat('sneaker-' + team, team === BLUE ? 0xc5f7f2 : 0xffd6be, 0.58, 0.05);
+  const hair = toonMat('hair-' + variation, hairColors[variation % hairColors.length], 0.76, 0.02);
+  const white = toonMat('eye-white', 0xf5f2df, 0.42, 0.02);
+  const dark = toonMat('eye-dark', 0x12202a, 0.4, 0.02);
+  const sneaker = toonMat('sneaker-' + team, team === BLUE ? 0xc5f7f2 : 0xffd6be, 0.58, 0.05);
   const addPart = (geometry, material, parent, x, y, z, scale) => {
     const part = mesh(geometry, material, parent, x, y, z);
     if (scale) part.scale.set(scale[0], scale[1], scale[2]);
@@ -639,18 +742,26 @@ function makeCharacter(team, variation = 0) {
   addPart(shared.box, clothMat, group, 0, 1.08, -0.045, [0.67, 0.46, 0.52]);
   addPart(shared.box, bodyMat, group, 0, 1.12, -0.315, [0.32, 0.25, 0.04]);
   addPart(shared.box, accentMat, group, 0, 0.79, -0.08, [0.62, 0.11, 0.50]);
+  addPart(shared.box, trimMat, group, -0.20, 1.04, -0.325, [0.19, 0.19, 0.035]);
+  addPart(shared.box, accentMat, group, -0.20, 1.08, -0.348, [0.12, 0.08, 0.018]);
+  addPart(shared.box, trimMat, group, 0.23, 0.99, -0.30, [0.16, 0.13, 0.035]);
+  addPart(shared.box, accentMat, group, 0.23, 1.02, -0.325, [0.10, 0.055, 0.018]);
   addPart(shared.ring, trimMat, group, 0, 1.36, -0.03, [0.66, 0.66, 0.66]);
   addPart(shared.sphere, skin, group, 0, 1.77, -0.035, [0.87, 0.98, 0.84]);
   addPart(shared.sphere, hair, group, 0, 1.97, 0.015, [1.02, 0.50, 1.00]);
   addPart(shared.sphere, hair, group, 0, 1.86, -0.245, [0.78, 0.28, 0.44]);
 
+  const cheekMat = toonMat('cheek-' + variation, variation % 2 ? 0xe17d70 : 0xf0a07c);
+  const eyeGlint = new THREE.MeshBasicMaterial({ color: 0xffffff });
   for (const side of [-1, 1]) {
-    addPart(shared.smallSphere, white, group, side * 0.105, 1.75, -0.306, [0.092, 0.105, 0.048]);
-    addPart(shared.smallSphere, dark, group, side * 0.105, 1.75, -0.348, [0.047, 0.064, 0.025]);
-    addPart(shared.box, hair, group, side * 0.105, 1.865, -0.351, [0.13, 0.035, 0.028]);
+    addPart(shared.smallSphere, white, group, side * 0.112, 1.755, -0.315, [0.108, 0.122, 0.052]);
+    addPart(shared.smallSphere, dark, group, side * 0.112, 1.752, -0.361, [0.056, 0.077, 0.029]);
+    addPart(shared.smallSphere, eyeGlint, group, side * 0.092, 1.785, -0.386, [0.022, 0.026, 0.014]);
+    addPart(shared.box, hair, group, side * 0.112, 1.875, -0.356, [0.145, 0.04, 0.032]);
     addPart(shared.smallSphere, skin, group, side * 0.278, 1.72, -0.02, [0.075, 0.11, 0.08]);
+    addPart(shared.smallSphere, cheekMat, group, side * 0.205, 1.655, -0.285, [0.075, 0.035, 0.022]);
   }
-  addPart(shared.box, dark, group, 0, 1.63, -0.321, [0.09, 0.026, 0.02]);
+  addPart(shared.box, dark, group, 0, 1.63, -0.327, [0.11, 0.025, 0.025]);
   const nose = addPart(shared.sphere, skin, group, 0, 1.70, -0.35, [0.035, 0.045, 0.045]);
   nose.material = skin;
 
@@ -689,6 +800,7 @@ function makeCharacter(team, variation = 0) {
   addPart(shared.sphere, trimMat, leftArm, 0, 0, 0, [0.21, 0.18, 0.20]);
   const leftSleeve = addPart(shared.limb, clothMat, leftArm, 0, -0.22, 0, [1, 1.05, 1]);
   leftSleeve.rotation.x = -0.12;
+  addPart(shared.cylinder, accentMat, leftArm, 0, -0.40, -0.025, [0.132, 0.075, 0.132]);
   addPart(shared.limb, skin, leftArm, 0, -0.47, -0.08, [0.82, 0.85, 0.82]);
   addPart(shared.smallSphere, accentMat, leftArm, 0, -0.59, -0.13, [0.14, 0.14, 0.14]);
 

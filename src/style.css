@@ -285,3 +285,22 @@ button { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
 @media (prefers-reduced-motion: reduce) {
   .splash-cyan, .splash-coral, .art-ring.ring-a { animation: none; }
 }
+
+
+/* Breakwater art direction: sun-washed harbour, vivid team accents, stronger hierarchy. */
+.topbar { background: linear-gradient(180deg, rgba(11,27,33,.88), rgba(11,27,33,.08)); }
+.brand-mark { box-shadow: 0 0 20px rgba(32,216,233,.16); }
+.start-screen {
+  background:
+    radial-gradient(ellipse at 75% 48%, rgba(31,156,164,.15), transparent 48%),
+    linear-gradient(90deg, rgba(8,20,26,.94), rgba(8,20,26,.78) 47%, rgba(8,20,26,.14));
+}
+.start-content { text-shadow: 0 2px 18px rgba(0,0,0,.28); }
+.intro { color: #d1e0d8; }
+.mode-card { background: rgba(15,43,49,.72); }
+.art-splash { mix-blend-mode: screen; }
+.art-note strong { text-shadow: 0 4px 24px rgba(0,0,0,.35); }
+.modal-card { background: rgba(10,29,35,.96); }
+.radar-card, .stat-pill, .match-hud { background: rgba(12,32,39,.82); }
+.weapon-card strong { color: #fff5df; }
+.weapon-symbol { background: rgba(32,216,233,.15); }
