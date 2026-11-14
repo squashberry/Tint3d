@@ -384,6 +384,7 @@ function spawnSplash(position, team) {
   particles.push({ mesh: ring, life: 0.42, maxLife: 0.42, ring: true });
   for (let i = 0; i < 3; i++) {
     const dot = mesh(shared.smallSphere, projectileMaterials[team], scene, position.x, groundHeight(position.x, position.z) + 0.1, position.z);
+    dot.layers.disable(1);
     const angle = Math.random() * Math.PI * 2;
     const scale = 0.07 + Math.random() * 0.06;
     dot.scale.setScalar(scale);
@@ -881,7 +882,7 @@ function updateCamera(delta) {
   const forward = new THREE.Vector3(Math.sin(yaw), 0, -Math.cos(yaw));
   const lookTarget = target.clone()
     .addScaledVector(forward, 1.9)
-    .add(new THREE.Vector3(0, -Math.sin(pitch) * 8.2, 0));
+    .add(new THREE.Vector3(0, (0.20 - pitch) * 8.2, 0));
   camera.lookAt(lookTarget);
   const wantedFov = player.flow > 0 ? 71 : 66;
   camera.fov = THREE.MathUtils.damp(camera.fov, wantedFov, 7.5, delta);
