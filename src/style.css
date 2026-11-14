@@ -531,3 +531,35 @@ button { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
   .intro-versus { bottom: 30px; }
   .match-intro-bottom { display: none; }
 }
+
+
+/* Fortnite-like movement controls: sprint is held, slide is a quick tap. */
+.mobile-actions { gap: 6px; }
+.mobile-actions button {
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font: 900 8px 'Barlow Condensed', sans-serif;
+  letter-spacing: .04em;
+  user-select: none;
+  -webkit-user-select: none;
+}
+#sprint-button.is-held {
+  color: #06202a;
+  background: #a8f7ff;
+  border-color: #e8ffff;
+  box-shadow: 0 0 20px rgba(32,216,233,.5);
+  transform: scale(.94);
+}
+#slide-button { color: #ffe0bb; border-color: rgba(255,190,111,.65); }
+#sprint-button { color: #9af6f2; border-color: rgba(32,216,233,.7); }
+#jump-button { font-size: 20px; }
+#fire-button { width: 60px; height: 60px; font-size: 24px; }
+@media (max-width: 380px) {
+  .mobile-actions { right: 8px; gap: 4px; }
+  .mobile-actions button { width: 37px; height: 37px; font-size: 7px; }
+  #fire-button { width: 54px; height: 54px; font-size: 22px; }
+}

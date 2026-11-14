@@ -55,7 +55,7 @@
             <span class="mode-ready">READY</span>
           </div>
           <button class="primary-button" id="start-button">DROP INTO BREAKWATER <span>↗</span></button>
-          <div class="start-foot"><span><b>WASD</b> MOVE</span><span><b>CLICK</b> SPRAY</span><span><b>SHIFT</b> FLOWLINE</span></div>
+          <div class="start-foot"><span><b>WASD</b> MOVE</span><span><b>SHIFT</b> RUN</span><span><b>C</b> SLIDE</span><span><b>Q</b> FLOWLINE</span></div>
         </div>
         <div class="start-art">
           <div class="art-ring ring-a"></div><div class="art-ring ring-b"></div>
@@ -133,7 +133,7 @@
           <div class="weapon-symbol">✳</div>
           <div><span>PRIMARY / 01</span><strong>PULSE SPRAYER</strong><small>RAPID · MID RANGE</small></div>
         </div>
-        <div class="control-hint" id="control-hint">WASD MOVE <b>·</b> MOUSE AIM <b>·</b> CLICK SPRAY <b>·</b> SHIFT FLOWLINE <b>·</b> SPACE JUMP</div>
+        <div class="control-hint" id="control-hint">WASD MOVE <b>·</b> SHIFT SPRINT <b>·</b> C SLIDE <b>·</b> Q FLOWLINE <b>·</b> SPACE JUMP</div>
         <div class="player-meters">
           <div class="meter-row"><span>INK</span><div class="meter"><i id="ink-fill"></i></div><b id="ink-label">100</b></div>
           <div class="meter-row"><span>VITALS</span><div class="meter health-meter"><i id="health-fill"></i></div><b id="health-label">100</b></div>
@@ -145,6 +145,8 @@
         <div class="joystick" id="joystick"><div class="joystick-knob" id="joystick-knob"></div></div>
         <div class="mobile-actions">
           <button id="flow-button" aria-label="Flowline">⇢</button>
+          <button id="slide-button" aria-label="Slide">SLIDE</button>
+          <button id="sprint-button" aria-label="Hold to sprint">RUN</button>
           <button id="jump-button" aria-label="Jump">↑</button>
           <button id="fire-button" aria-label="Spray paint">✳</button>
         </div>

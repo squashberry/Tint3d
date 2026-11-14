@@ -38,7 +38,7 @@ document.addEventListener('dragstart', (event) => {
 });
 if (isTouch) {
   document.body.classList.add('touch-device');
-  ui.hint.textContent = 'LEFT STICK MOVE  ·  DRAG TO AIM  ·  TAP SPRAY';
+  ui.hint.textContent = 'LEFT STICK MOVE  ·  HOLD RUN  ·  SLIDE  ·  TAP SPRAY';
 }
 
 const scene = new THREE.Scene();
@@ -634,8 +634,8 @@ function makeApproachWedge(width, rise, run, thickness) {
 }
 rampA.geometry.dispose();
 rampB.geometry.dispose();
-rampA.geometry = makeApproachWedge(5.8, 1.05, 4.25, 0.30);
-rampB.geometry = makeApproachWedge(5.8, 1.05, 4.25, 0.30);
+rampA.geometry = makeApproachWedge(5.8, 1.1675, 4.25, 0.30);
+rampB.geometry = makeApproachWedge(5.8, 1.1675, 4.25, 0.30);
 rampA.position.set(0, 0, 4.85);
 rampB.position.set(0, 0, -4.85);
 rampA.rotation.set(0, 0, 0);
@@ -689,12 +689,12 @@ const deckPaintOverlay = addWalkablePaintOverlay('Deck wet ink layer', [
   [-4.9, 1.1675, -2.75], [4.9, 1.1675, -2.75]
 ]);
 const rampNorthPaintOverlay = addWalkablePaintOverlay('North ramp wet ink layer', [
-  [-2.85, 0.0, 6.9], [2.85, 0.0, 6.9],
-  [-2.85, 1.05, 2.9], [2.85, 1.05, 2.9]
+  [-2.85, 0.0, 6.975], [2.85, 0.0, 6.975],
+  [-2.85, 1.1675, 2.725], [2.85, 1.1675, 2.725]
 ]);
 const rampSouthPaintOverlay = addWalkablePaintOverlay('South ramp wet ink layer', [
-  [-2.85, 1.05, -2.9], [2.85, 1.05, -2.9],
-  [-2.85, 0.0, -6.9], [2.85, 0.0, -6.9]
+  [-2.85, 1.1675, -2.725], [2.85, 1.1675, -2.725],
+  [-2.85, 0.0, -6.975], [2.85, 0.0, -6.975]
 ]);
 
 for (let z = -6.5; z <= 6.5; z += 1) {
@@ -1297,19 +1297,23 @@ addKenneyModel('city-industrial', 'chimney-large.glb', 29.2, 0, -47.7, 5.4, 0);
 // ---------------------------------------------------------------------------
 
 function groundHeight(x, z) {
-  if (Math.abs(x) <= 5.05 && z >= -2.9 && z <= 2.9) return 1.05;
-  if (Math.abs(x) <= 2.85 && z > 2.9 && z < 6.9) return clamp((6.9 - z) / 4, 0, 1) * 1.05;
-  if (Math.abs(x) <= 2.85 && z < -2.9 && z > -6.9) return clamp((z + 6.9) / 4, 0, 1) * 1.05;
+  if (Math.abs(x) <= 4.9 && Math.abs(z) <= 2.75) return 1.1675;
+  if (Math.abs(x) <= 2.9 && z > 2.725 && z < 6.975) {
+    return clamp((6.975 - z) / 4.25, 0, 1) * 1.1675;
+  }
+  if (Math.abs(x) <= 2.9 && z < -2.725 && z > -6.975) {
+    return clamp((z + 6.975) / 4.25, 0, 1) * 1.1675;
+  }
   return 0;
 }
 
 function paintSurfaceHeight(x, z) {
   if (Math.abs(x) <= 4.9 && Math.abs(z) <= 2.75) return 1.1675;
-  if (Math.abs(x) <= 2.85 && z >= 2.725 && z <= 6.975) {
-    return clamp((6.975 - z) / 4.25, 0, 1) * 1.05;
+  if (Math.abs(x) <= 2.9 && z >= 2.725 && z <= 6.975) {
+    return clamp((6.975 - z) / 4.25, 0, 1) * 1.1675;
   }
-  if (Math.abs(x) <= 2.85 && z >= -6.975 && z <= -2.725) {
-    return clamp((z + 6.975) / 4.25, 0, 1) * 1.05;
+  if (Math.abs(x) <= 2.9 && z >= -6.975 && z <= -2.725) {
+    return clamp((z + 6.975) / 4.25, 0, 1) * 1.1675;
   }
   return -0.045;
 }
@@ -1620,6 +1624,7 @@ function seedArea(team, x, z) {
 }
 seedArea(BLUE, 0, 15.5);
 seedArea(ORANGE, 0, -15.5);
+paintAt(new THREE.Vector3(0, 0, 17.2), BLUE, 2.1, true);
 
 const shadowCanvas = document.createElement('canvas');
 shadowCanvas.width = 128;
@@ -1933,6 +1938,9 @@ function makeCharacter(team, variation = 0) {
   const weapon = new THREE.Group();
   weapon.position.set(0.025, -0.28, -0.17);
   rightArm.elbow.add(weapon);
+  const backMount = new THREE.Group();
+  backMount.position.set(0.21, 0.31, 0.29);
+  torsoPivot.add(backMount);
   const barrel = part(new THREE.CylinderGeometry(0.105, 0.145, 0.70, 12), teamDark, weapon, 0, 0, -0.40);
   barrel.rotation.x = Math.PI / 2;
   const barrelSleeve = part(new THREE.CylinderGeometry(0.14, 0.14, 0.18, 12), teamBase, weapon, 0, 0, -0.55);
@@ -1968,7 +1976,7 @@ function makeCharacter(team, variation = 0) {
   }
 
   group.userData.character = {
-    torsoPivot, head, leftArm, rightArm, legs, weapon, flash,
+    torsoPivot, head, leftArm, rightArm, legs, weapon, backMount, flash,
     defaultLeftArm: 0.60, defaultRightArm: 0.38
   };
   group.userData.weapon = weapon;
@@ -1981,9 +1989,25 @@ function makeCharacter(team, variation = 0) {
   return group;
 }
 
+function setWeaponHolstered(actor, holstered) {
+  const c = actor.group.userData.character;
+  if (!c || c.weaponHolstered === holstered) return;
+  if (holstered) {
+    c.backMount.add(c.weapon);
+    c.weapon.position.set(0.02, 0.015, 0.015);
+    c.weapon.rotation.set(0, Math.PI, 0.34);
+  } else {
+    c.rightArm.elbow.add(c.weapon);
+    c.weapon.position.set(0.025, -0.28, -0.17);
+    c.weapon.rotation.set(0, 0, 0);
+  }
+  c.weaponHolstered = holstered;
+}
+
 function resetCharacterPose(actor) {
   const c = actor.group.userData.character;
   if (!c) return;
+  setWeaponHolstered(actor, false);
   c.torsoPivot.position.set(0, 0.80, 0);
   c.torsoPivot.rotation.set(0, 0, 0);
   c.torsoPivot.scale.set(1, 1, 1);
@@ -2011,7 +2035,10 @@ function createActor(team, variation, x, z, playerControlled = false) {
     moveCooldown: 0, target: new THREE.Vector3(x, 0, z),
     respawn: 0, invulnerable: 0, eliminations: 0, walkPhase: Math.random() * 6,
     ink: 100, flow: 0, flowCooldown: 0, verticalVelocity: 0, grounded: true,
-    velocity: new THREE.Vector3(), recoil: 0, hitTimer: 0, landImpact: 0, ragdollState: null
+    velocity: new THREE.Vector3(), recoil: 0, hitTimer: 0, landImpact: 0, ragdollState: null,
+    sprinting: false, sliding: false, slideTimer: 0, slideCooldown: 0,
+    slideSpeed: 0, slideDirection: new THREE.Vector3(),
+    jumpBuffer: 0, coyoteTimer: 0.12, jumpHoldTimer: 0
   };
   if (playerControlled) group.traverse((child) => { if (child.isMesh) child.layers.disable(1); });
   const shadow = new THREE.Mesh(shadowGeometry, shadowMaterial);
@@ -2083,12 +2110,15 @@ let timeLeft = MATCH_SECONDS;
 let toastTimer = 0;
 let fireHeld = false;
 let jumpQueued = false;
+let jumpHeld = false;
+let sprintHeld = false;
+let slideQueued = false;
 let flowQueued = false;
+let lastPlayerPaintPosition = null;
 let joystick = { x: 0, y: 0 };
 let activePointers = new Map();
 let audioContext = null;
 let miniTimer = 0;
-let paintTrailTimer = 0;
 let totalEliminations = 0;
 let hitTimer = 0;
 const keys = new Set();
@@ -2173,7 +2203,9 @@ function spawnProjectile(origin, target, team, owner) {
 }
 function fireActor(actor, target) {
   if (actor.fireCooldown > 0 || actor.ink < 4 || !actor.group.visible) return;
+  setWeaponHolstered(actor, false);
   if (actor.player) {
+    actor.sprinting = false;
     actor.group.rotation.y = yaw;
     actor.group.userData.weapon.rotation.x = clamp((0.20 - pitch) * 0.65, -0.12, 0.82);
   }
@@ -2228,6 +2260,15 @@ function respawnActor(actor) {
   actor.group.rotation.set(0, actor.team === BLUE ? 0 : Math.PI, 0);
   resetCharacterPose(actor);
   updateActorShadow(actor);
+  if (actor.player) {
+    actor.sliding = false;
+    actor.sprinting = false;
+    actor.slideTimer = 0;
+    actor.slideCooldown = 0;
+    actor.jumpBuffer = 0;
+    actor.coyoteTimer = 0.12;
+    lastPlayerPaintPosition = new THREE.Vector3(actor.position.x, 0, actor.position.z);
+  }
 }
 function damageActor(actor, amount, source) {
   if (actor.invulnerable > 0 || !actor.group.visible || actor.ragdollState) return;
@@ -2285,7 +2326,7 @@ function updateProjectiles(delta) {
         break;
       }
     }
-    const floorY = groundHeight(pos.x, pos.z);
+    const floorY = paintSurfaceHeight(pos.x, pos.z);
     const hitWorld = solidBounds.some((box) =>
       pos.x > box.x - box.halfX && pos.x < box.x + box.halfX &&
       pos.z > box.z - box.halfZ && pos.z < box.z + box.halfZ &&
@@ -2316,6 +2357,40 @@ function ownerAt(x, z) {
   const index = cellAt(x, z);
   return index < 0 ? 0 : owners[index];
 }
+function hasFriendlyInkUnderfoot(x, z, team = BLUE) {
+  const sample = gridStep * 0.42;
+  const offsets = [
+    [0, 0], [sample, 0], [-sample, 0],
+    [0, sample], [0, -sample],
+    [sample * 0.72, sample * 0.72],
+    [-sample * 0.72, sample * 0.72],
+    [sample * 0.72, -sample * 0.72],
+    [-sample * 0.72, -sample * 0.72]
+  ];
+  let friendly = 0;
+  for (const [dx, dz] of offsets) {
+    if (ownerAt(x + dx, z + dz) === team) friendly++;
+  }
+  return friendly >= 2;
+}
+function paintPlayerTrail(position) {
+  const current = new THREE.Vector3(position.x, 0, position.z);
+  if (!lastPlayerPaintPosition) {
+    lastPlayerPaintPosition = current.clone();
+    paintAt(current, BLUE, 1.08, true);
+    return;
+  }
+  const distance = lastPlayerPaintPosition.distanceTo(current);
+  if (distance > 0.02) {
+    const stamps = Math.max(1, Math.ceil(distance / 0.36));
+    for (let i = 1; i <= stamps; i++) {
+      const t = i / stamps;
+      const point = new THREE.Vector3().lerpVectors(lastPlayerPaintPosition, current, t);
+      paintAt(point, BLUE, 1.08, true);
+    }
+  }
+  lastPlayerPaintPosition.copy(current);
+}
 function updatePlayer(delta) {
   if (player.respawn > 0) {
     player.respawn = Math.max(0, player.respawn - delta);
@@ -2323,59 +2398,134 @@ function updatePlayer(delta) {
     updateInk();
     return;
   }
+
   const input = movementInput();
-  const forward = new THREE.Vector3(Math.sin(yaw), 0, -Math.cos(yaw));
-  const right = new THREE.Vector3(Math.cos(yaw), 0, Math.sin(yaw));
-  const move = new THREE.Vector3().addScaledVector(right, input.x).addScaledVector(forward, input.y);
-  if (move.lengthSq() > 0.001) move.normalize();
+  const cameraForward = camera.getWorldDirection(new THREE.Vector3());
+  cameraForward.y = 0;
+  if (cameraForward.lengthSq() < 0.01) cameraForward.set(Math.sin(yaw), 0, -Math.cos(yaw));
+  cameraForward.normalize();
+  const cameraRight = new THREE.Vector3().crossVectors(cameraForward, new THREE.Vector3(0, 1, 0)).normalize();
+  const move = new THREE.Vector3()
+    .addScaledVector(cameraRight, input.x)
+    .addScaledVector(cameraForward, input.y);
+  if (move.lengthSq() > 1) move.normalize();
+
+  const sprintRequested = sprintHeld || keys.has('ShiftLeft') || keys.has('ShiftRight');
+  player.slideCooldown = Math.max(0, player.slideCooldown - delta);
 
   if (flowQueued) {
     flowQueued = false;
-    if (player.flowCooldown <= 0 && move.lengthSq() > 0.01 && ownerAt(player.position.x, player.position.z) === BLUE) {
-      player.flow = 0.72;
+    if (player.flowCooldown <= 0 && move.lengthSq() > 0.01 && hasFriendlyInkUnderfoot(player.position.x, player.position.z, BLUE)) {
+      player.flow = 0.82;
       player.flowCooldown = 2.2;
-      showToast('FLOWLINE  /  SURGE');
+      showToast('FLOWLINE  /  INK SURGE');
     } else if (player.flowCooldown <= 0) {
       showToast('FLOWLINE NEEDS YOUR INK');
     }
   }
   player.flow = Math.max(0, player.flow - delta);
   player.flowCooldown = Math.max(0, player.flowCooldown - delta);
-  const speed = player.flow > 0 ? 16.2 : 9.2;
-  const desiredVelocity = new THREE.Vector3(move.x * speed, 0, move.z * speed);
-  const response = move.lengthSq() > 0.001 ? 34 : 42;
-  player.velocity.lerp(desiredVelocity, 1 - Math.exp(-response * delta));
-  moveOnGround(player, player.velocity.x * delta, player.velocity.z * delta, 0.48);
-  const baseY = groundHeight(player.position.x, player.position.z);
-  if (jumpQueued && player.grounded) {
-    player.verticalVelocity = 7.3;
-    player.grounded = false;
+
+  if (slideQueued) {
+    slideQueued = false;
+    if (!player.sliding && player.slideCooldown <= 0 && sprintRequested && player.grounded &&
+        player.velocity.length() > 4.2 && move.lengthSq() > 0.02) {
+      player.sliding = true;
+      player.slideTimer = 0.82;
+      player.slideCooldown = 1.0;
+      player.slideDirection.copy(player.velocity).setY(0).normalize();
+      if (player.slideDirection.lengthSq() < 0.01) player.slideDirection.copy(move).normalize();
+      player.slideSpeed = Math.max(13.8, player.velocity.length());
+      player.sprinting = false;
+      showToast('SLIDE  /  LOW PROFILE');
+    }
   }
-  jumpQueued = false;
+
+  if (jumpQueued) {
+    player.jumpBuffer = 0.14;
+    jumpQueued = false;
+  } else {
+    player.jumpBuffer = Math.max(0, player.jumpBuffer - delta);
+  }
+  if (player.grounded) player.coyoteTimer = 0.12;
+  else player.coyoteTimer = Math.max(0, player.coyoteTimer - delta);
+
+  if (player.jumpBuffer > 0 && (player.grounded || player.coyoteTimer > 0)) {
+    player.sliding = false;
+    player.grounded = false;
+    player.verticalVelocity = 8.25 + (sprintRequested ? 0.35 : 0);
+    player.jumpBuffer = 0;
+    player.coyoteTimer = 0;
+    player.jumpHoldTimer = 0;
+    player.landImpact = 0;
+    playPop(0.55);
+  }
+
+  const moving = move.lengthSq() > 0.025;
+  const flowBoost = player.flow > 0;
+  player.sprinting = !player.sliding && sprintRequested && moving && player.grounded && !fireHeld && !flowBoost;
+  const targetSpeed = flowBoost ? 16.2 : (player.sprinting ? 12.6 : 8.0);
+
+  if (player.sliding) {
+    player.slideTimer -= delta;
+    if (moving) {
+      player.slideDirection.lerp(move, 1 - Math.exp(-1.35 * delta)).normalize();
+    }
+    player.slideSpeed = Math.max(5.0, player.slideSpeed * Math.exp(-1.12 * delta));
+    player.velocity.x = player.slideDirection.x * player.slideSpeed;
+    player.velocity.z = player.slideDirection.z * player.slideSpeed;
+    if (player.slideTimer <= 0 || !player.grounded) {
+      player.sliding = false;
+      player.sprinting = sprintRequested && moving && !fireHeld;
+    }
+  } else {
+    const desiredVelocity = new THREE.Vector3(move.x * targetSpeed, 0, move.z * targetSpeed);
+    const response = player.grounded ? (moving ? 23 : 17) : 6.5;
+    player.velocity.lerp(desiredVelocity, 1 - Math.exp(-response * delta));
+  }
+
+  moveOnGround(player, player.velocity.x * delta, player.velocity.z * delta, player.sliding ? 0.40 : 0.48);
+
+  const baseY = groundHeight(player.position.x, player.position.z);
   if (!player.grounded) {
-    player.verticalVelocity -= 19 * delta;
+    player.jumpHoldTimer += delta;
+    const gravity = player.verticalVelocity > 0
+      ? (jumpHeld && player.jumpHoldTimer < 0.22 ? 12.8 : 20.5)
+      : 27.0;
+    player.verticalVelocity -= gravity * delta;
     player.position.y += player.verticalVelocity * delta;
     if (player.position.y <= baseY) {
-      if (player.verticalVelocity < -2.8) player.landImpact = clamp(Math.abs(player.verticalVelocity) * 0.075, 0.18, 1);
+      if (player.verticalVelocity < -2.8) {
+        player.landImpact = clamp(Math.abs(player.verticalVelocity) * 0.075, 0.18, 1);
+      }
       player.position.y = baseY;
       player.verticalVelocity = 0;
       player.grounded = true;
+      player.coyoteTimer = 0.12;
+      player.jumpHoldTimer = 0;
     }
   } else {
     player.position.y = baseY;
   }
+
   player.group.position.copy(player.position);
   const yawDelta = Math.atan2(Math.sin(yaw - player.group.rotation.y), Math.cos(yaw - player.group.rotation.y));
   player.group.rotation.y += yawDelta * (1 - Math.exp(-24 * delta));
+
+  if (player.sprinting || player.sliding) setWeaponHolstered(player, true);
+  else if (!fireHeld) setWeaponHolstered(player, false);
+
   player.fireCooldown = Math.max(0, player.fireCooldown - delta);
-  player.ink = Math.min(100, player.ink + delta * (ownerAt(player.position.x, player.position.z) === BLUE ? 14 : 8));
+  const onFriendlyInk = hasFriendlyInkUnderfoot(player.position.x, player.position.z, BLUE);
+  player.ink = Math.min(100, player.ink + delta * (onFriendlyInk ? 14 : 8));
   player.invulnerable = Math.max(0, player.invulnerable - delta);
-  player.walkPhase += delta * (move.lengthSq() > 0 ? 10 : 2);
-  animateActor(player, move.length(), delta);
-  paintTrailTimer -= delta;
-  if (move.lengthSq() > 0.03 && paintTrailTimer <= 0) {
-    paintTrailTimer = 0.26;
-    paintAt(new THREE.Vector3(player.position.x, 0, player.position.z), BLUE, 0.68, true);
+  player.walkPhase += delta * (player.sliding ? 15 : (player.sprinting ? 14 : (moving ? 10 : 2)));
+  animateActor(player, player.sliding ? 1.25 : (player.sprinting ? 1 : move.length()), delta);
+
+  if (moving && player.grounded && !player.sliding) {
+    paintPlayerTrail(player.position);
+  } else if (!lastPlayerPaintPosition) {
+    lastPlayerPaintPosition = new THREE.Vector3(player.position.x, 0, player.position.z);
   }
   updateInk();
 }
@@ -2398,8 +2548,9 @@ function animateActor(actor, moving, delta = 0.016) {
   const air = actor.player && !actor.grounded ? 1 : 0;
   const idleGesture = running ? 0 : Math.sin(t * 0.72);
 
-  c.torsoPivot.position.y = 0.80 + bounce + (actor.landImpact > 0 ? -actor.landImpact * 0.08 : 0);
-  c.torsoPivot.rotation.x = running ? (sprinting ? -0.25 : -0.10) : Math.sin(t * 0.55) * 0.025;
+  const sliding = !!actor.sliding;
+  c.torsoPivot.position.y = (sliding ? 0.61 : 0.80) + bounce + (actor.landImpact > 0 ? -actor.landImpact * 0.08 : 0);
+  c.torsoPivot.rotation.x = sliding ? -0.72 : (running ? (sprinting ? -0.30 : -0.10) : Math.sin(t * 0.55) * 0.025);
   c.torsoPivot.rotation.z = clamp(-actor.velocity.x * 0.009, -0.14, 0.14) + hitFactor * 0.16;
   c.torsoPivot.scale.y = 1 - Math.max(0, actor.landImpact || 0) * 0.12;
   c.torsoPivot.scale.x = 1 + Math.max(0, actor.landImpact || 0) * 0.06;
@@ -2407,16 +2558,18 @@ function animateActor(actor, moving, delta = 0.016) {
   c.head.rotation.y = running ? -stride * 0.06 : idleGesture * 0.10;
   c.head.rotation.z = Math.sin(t * 0.55) * 0.025 - hitFactor * 0.18;
 
-  c.leftArm.shoulder.rotation.x = c.defaultLeftArm - stride * 0.34 - air * 0.90 + shooting * 0.10;
-  c.rightArm.shoulder.rotation.x = c.defaultRightArm + stride * 0.30 - air * 0.55 - shooting * 0.22;
+  c.leftArm.shoulder.rotation.x = c.defaultLeftArm - stride * 0.34 - air * 0.90 + shooting * 0.10 + (sliding ? -0.55 : 0);
+  c.rightArm.shoulder.rotation.x = c.defaultRightArm + stride * 0.30 - air * 0.55 - shooting * 0.22 + (sliding ? -0.28 : 0);
   c.leftArm.shoulder.rotation.z = -0.035 + Math.sin(t * 0.9) * 0.035 + hitFactor * 0.42;
   c.rightArm.shoulder.rotation.z = 0.025 - hitFactor * 0.58;
   c.leftArm.elbow.rotation.x = -0.18 - Math.max(0, stride) * 0.22 - air * 0.55;
   c.rightArm.elbow.rotation.x = -0.08 - shooting * 0.32 - Math.max(0, -stride) * 0.18;
   c.leftArm.elbow.rotation.z = -0.06;
   c.rightArm.elbow.rotation.z = 0.045;
-  c.weapon.position.z = -0.17 + (actor.recoil || 0) * 0.55;
-  c.weapon.rotation.x = actor.player ? clamp((0.20 - pitch) * 0.65, -0.12, 0.82) : -0.05;
+  if (!c.weaponHolstered) {
+    c.weapon.position.z = -0.17 + (actor.recoil || 0) * 0.55;
+    c.weapon.rotation.x = actor.player ? clamp((0.20 - pitch) * 0.65, -0.12, 0.82) : -0.05;
+  }
 
   for (let i = 0; i < 2; i++) {
     const leg = c.legs[i];
@@ -2427,6 +2580,10 @@ function animateActor(actor, moving, delta = 0.016) {
     if (air) {
       leg.hip.rotation.x = (i === 0 ? 0.52 : -0.70);
       leg.knee.rotation.x = i === 0 ? 0.82 : 0.60;
+    }
+    if (sliding) {
+      leg.hip.rotation.x = -0.52 + (i === 0 ? 0.12 : -0.12);
+      leg.knee.rotation.x = 1.18;
     }
     leg.hip.rotation.z += hitFactor * (i === 0 ? 0.34 : -0.28);
   }
@@ -2528,22 +2685,25 @@ function updateBots(delta) {
   }
 }
 function updateCamera(delta) {
-  const target = player.position.clone().add(new THREE.Vector3(0, 1.48, 0));
-  const distance = 7.15;
-  const offset = new THREE.Vector3(
-    Math.sin(yaw) * distance,
-    3.05,
-    Math.cos(yaw) * distance
-  );
-  const desired = target.clone().add(offset);
-  camera.position.lerp(desired, 1 - Math.exp(-15.5 * delta));
-  const forward = new THREE.Vector3(Math.sin(yaw), 0, -Math.cos(yaw));
+  const forward = new THREE.Vector3(Math.sin(yaw), 0, -Math.cos(yaw)).normalize();
+  const right = new THREE.Vector3(Math.cos(yaw), 0, Math.sin(yaw)).normalize();
+  const sliding = !!player.sliding;
+  const target = player.position.clone().add(new THREE.Vector3(0, sliding ? 0.98 : 1.38, 0));
+  const distance = sliding ? 5.35 : 6.15;
+  const height = sliding ? 1.72 : 2.18;
+  const shoulder = 0.48;
+  const desired = target.clone()
+    .addScaledVector(forward, -distance)
+    .addScaledVector(right, shoulder)
+    .add(new THREE.Vector3(0, height, 0));
+  camera.position.lerp(desired, 1 - Math.exp(-20 * delta));
   const lookTarget = target.clone()
-    .addScaledVector(forward, 1.9)
-    .add(new THREE.Vector3(0, (0.20 - pitch) * 8.2, 0));
+    .addScaledVector(forward, 3.35)
+    .addScaledVector(right, shoulder)
+    .add(new THREE.Vector3(0, 0.10 - pitch * 4.8, 0));
   camera.lookAt(lookTarget);
-  const wantedFov = player.flow > 0 ? 71 : 66;
-  camera.fov = THREE.MathUtils.damp(camera.fov, wantedFov, 7.5, delta);
+  const wantedFov = sliding ? 72 : (player.sprinting || player.flow > 0 ? 70 : 65);
+  camera.fov = THREE.MathUtils.damp(camera.fov, wantedFov, 8.5, delta);
   camera.updateProjectionMatrix();
 }
 function updateMinimap(delta) {
@@ -2673,9 +2833,19 @@ function resetMatch() {
     actor.flow = 0;
     actor.flowCooldown = 0;
     actor.hitTimer = 0;
+    actor.sliding = false;
+    actor.sprinting = false;
+    actor.slideTimer = 0;
+    actor.slideCooldown = 0;
+    actor.jumpBuffer = 0;
+    actor.coyoteTimer = 0.12;
     resetCharacterPose(actor);
   }
   player.health = 100;
+  sprintHeld = false;
+  jumpHeld = false;
+  slideQueued = false;
+  lastPlayerPaintPosition = new THREE.Vector3(player.position.x, 0, player.position.z);
   player.verticalVelocity = 0;
   player.grounded = true;
   player.ink = 100;
@@ -2775,6 +2945,7 @@ function updateMatchIntro(delta) {
       updateActorShadow(actor);
     }
     introSavedActors = [];
+    lastPlayerPaintPosition = new THREE.Vector3(player.position.x, 0, player.position.z);
     introActive = false;
     ui.intro.classList.add('hidden');
     gameStarted = true;
@@ -2826,18 +2997,25 @@ document.addEventListener('pointerlockchange', () => {
 });
 document.addEventListener('mousemove', (event) => {
   if (document.pointerLockElement && gameStarted) {
-    yaw -= event.movementX * 0.0027;
-    pitch = clamp(pitch + event.movementY * 0.0018, -1.05, 0.72);
+    yaw += event.movementX * 0.00235;
+    pitch = clamp(pitch + event.movementY * 0.00165, -0.95, 0.68);
   }
 });
 document.addEventListener('keydown', (event) => {
   keys.add(event.code);
-  if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(event.code)) event.preventDefault();
-  if (event.code === 'Space' && !event.repeat) jumpQueued = true;
-  if ((event.code === 'ShiftLeft' || event.code === 'ShiftRight') && !event.repeat) flowQueued = true;
+  if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyQ', 'KeyC'].includes(event.code)) event.preventDefault();
+  if (event.code === 'Space' && !event.repeat) {
+    jumpQueued = true;
+    jumpHeld = true;
+  }
+  if (event.code === 'KeyQ' && !event.repeat) flowQueued = true;
+  if (event.code === 'KeyC' && !event.repeat) slideQueued = true;
   if (event.code === 'Escape' && gameStarted && !isTouch) pauseGame();
 });
-document.addEventListener('keyup', (event) => keys.delete(event.code));
+document.addEventListener('keyup', (event) => {
+  keys.delete(event.code);
+  if (event.code === 'Space') jumpHeld = false;
+});
 renderer.domElement.addEventListener('pointerdown', (event) => {
   if (event.button === 0 && gameStarted && !paused && !isTouch) {
     fireHeld = true;
@@ -2852,8 +3030,8 @@ renderer.domElement.addEventListener('pointermove', (event) => {
   if (!isTouch || !state || state.type !== 'look') return;
   const dx = event.clientX - state.x;
   const dy = event.clientY - state.y;
-  yaw -= dx * 0.006;
-  pitch = clamp(pitch + dy * 0.004, -1.05, 0.72);
+  yaw += dx * 0.0046;
+  pitch = clamp(pitch + dy * 0.0034, -0.95, 0.68);
   state.x = event.clientX;
   state.y = event.clientY;
 });
@@ -2867,13 +3045,26 @@ function releasePointer(event) {
 }
 renderer.domElement.addEventListener('pointerup', releasePointer);
 renderer.domElement.addEventListener('pointercancel', releasePointer);
-window.addEventListener('pointerup', () => { if (!isTouch) fireHeld = false; });
-window.addEventListener('pointercancel', () => { if (!isTouch) fireHeld = false; });
+window.addEventListener('pointerup', () => {
+  if (!isTouch) fireHeld = false;
+  if (isTouch && sprintHeld && !sprintButton.matches(':active')) {
+    sprintHeld = false;
+    sprintButton.classList.remove('is-held');
+  }
+});
+window.addEventListener('pointercancel', () => {
+  if (!isTouch) fireHeld = false;
+  sprintHeld = false;
+  sprintButton.classList.remove('is-held');
+  jumpHeld = false;
+});
 
 const joystickEl = $('joystick');
 const knobEl = $('joystick-knob');
 const fireButton = $('fire-button');
 const jumpButton = $('jump-button');
+const sprintButton = $('sprint-button');
+const slideButton = $('slide-button');
 function updateJoystick(event) {
   const rect = joystickEl.getBoundingClientRect();
   const cx = rect.left + rect.width / 2;
@@ -2911,6 +3102,27 @@ fireButton.addEventListener('pointercancel', () => { fireHeld = false; });
 jumpButton.addEventListener('pointerdown', (event) => {
   event.preventDefault();
   jumpQueued = true;
+  jumpHeld = true;
+  if (jumpButton.setPointerCapture) jumpButton.setPointerCapture(event.pointerId);
+});
+jumpButton.addEventListener('pointerup', () => { jumpHeld = false; });
+jumpButton.addEventListener('pointercancel', () => { jumpHeld = false; });
+
+sprintButton.addEventListener('pointerdown', (event) => {
+  event.preventDefault();
+  sprintHeld = true;
+  sprintButton.classList.add('is-held');
+  if (sprintButton.setPointerCapture) sprintButton.setPointerCapture(event.pointerId);
+});
+const releaseSprint = () => {
+  sprintHeld = false;
+  sprintButton.classList.remove('is-held');
+};
+sprintButton.addEventListener('pointerup', releaseSprint);
+sprintButton.addEventListener('pointercancel', releaseSprint);
+slideButton.addEventListener('pointerdown', (event) => {
+  event.preventDefault();
+  slideQueued = true;
 });
 $('flow-button').addEventListener('pointerdown', (event) => {
   event.preventDefault();
