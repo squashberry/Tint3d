@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import './style.css';
 
 const BLUE = 1;
@@ -644,8 +645,7 @@ function addHarbourCrane(x, z, accent = 0xff8b60, flip = 1) {
   diagonalB.rotation.z = 0.39;
   for (let i = 0; i < 5; i++) block(x - 1.9 + i * 0.95, 10.35, z, 0.07, 0.16, 0.07, accent);
 }
-addHarbourCrane(-15, -27, 0x20d8e9, 1);
-addHarbourCrane(15, -27, 0xff7652, -1);
+// The old prototype cranes are replaced by Kenney's authored crane meshes below.
 
 // Hanging hoists, pulley blocks and suspended freight turn the cranes into
 // readable machines rather than bare geometric frames.
@@ -677,12 +677,7 @@ function addCraneHoist(x, z, accent, cargoColor, swing = 1) {
 }
 addCraneHoist(-15.8, -27.0, 0x20d8e9, 0x285a66, 1);
 addCraneHoist(15.8, -27.0, 0xff7652, 0x77513d, -1);
-for (let i = 0; i < 6; i++) {
-  const x = -29 + i * 11.5;
-  const height = 5 + (i % 3) * 2.1;
-  block(x, height / 2, -34, 2.3, height, 2.3, i % 2 ? 0x557b7e : 0x42646f);
-  block(x, height + 0.10, -34, 2.45, 0.20, 2.45, 0xffb46f);
-}
+// Industrial skyline is now assembled from real, textured Kenney building meshes.
 for (const x of [-24, 24]) {
   cylinder(x, 5.1, -23, 0.23, 10.2, 0x37555e);
   block(x, 10.35, -23, 1.05, 0.22, 1.05, 0xffc278, { emissive: 0x9b582a });
@@ -1071,6 +1066,118 @@ for (let i = 0; i < 7; i++) {
   block(x, 0.98, -22.8, 0.12, 1.70, 0.12, 0x334d54);
   block(x, 1.82, -22.8, 0.56, 0.10, 0.56, 0xffbd72);
 }
+
+// ---------------------------------------------------------------------------
+
+
+// AUTHORED CC0 ENVIRONMENT MESHES -------------------------------------------
+// Kenney Factory Kit + City Kit (Industrial). GLB files and their colormaps
+// are stored locally under /assets; no third-party runtime request is needed.
+const kenneyLoader = new GLTFLoader();
+const kenneyAssetRoot = import.meta.env.BASE_URL + 'assets/kenney/';
+const kenneySourceCache = new Map();
+const kenneyTextureCache = new Map();
+
+function getKenneySource(pack, file) {
+  const key = pack + '/' + file;
+  if (kenneySourceCache.has(key)) return kenneySourceCache.get(key);
+  const promise = new Promise((resolve) => {
+    kenneyLoader.load(
+      kenneyAssetRoot + key,
+      (gltf) => {
+        const model = gltf.scene;
+        model.traverse((node) => {
+          if (!node.isMesh) return;
+          node.layers.enable(1);
+          node.frustumCulled = true;
+          const materials = Array.isArray(node.material) ? node.material : [node.material];
+          for (const material of materials) {
+            if (!material) continue;
+            if (material.map) {
+              if (!kenneyTextureCache.has(pack)) {
+                kenneyTextureCache.set(pack, material.map);
+              } else if (material.map !== kenneyTextureCache.get(pack)) {
+                material.map.dispose();
+                material.map = kenneyTextureCache.get(pack);
+              }
+            }
+            if ('roughness' in material) material.roughness = Math.max(0.72, material.roughness || 0);
+            if ('metalness' in material) material.metalness = Math.min(0.28, material.metalness || 0);
+            material.needsUpdate = true;
+          }
+        });
+        resolve(model);
+      },
+      undefined,
+      (error) => {
+        console.warn('Tint3d could not load environment mesh:', key, error);
+        resolve(null);
+      }
+    );
+  });
+  kenneySourceCache.set(key, promise);
+  return promise;
+}
+
+function addKenneyModel(pack, file, x, floorY, z, scale, rotationY = 0, solid = false) {
+  return getKenneySource(pack, file).then((source) => {
+    if (!source) return null;
+    const model = source.clone(true);
+    model.scale.setScalar(scale);
+    model.rotation.set(0, rotationY, 0);
+    model.position.set(0, 0, 0);
+    model.updateMatrixWorld(true);
+
+    const localBounds = new THREE.Box3().setFromObject(model);
+    const size = localBounds.getSize(new THREE.Vector3());
+    const centre = localBounds.getCenter(new THREE.Vector3());
+    model.position.set(x - centre.x, floorY - localBounds.min.y, z - centre.z);
+    model.updateMatrixWorld(true);
+    model.traverse((node) => {
+      if (node.isMesh) {
+        node.layers.enable(1);
+        node.castShadow = false;
+        node.receiveShadow = false;
+      }
+    });
+    scene.add(model);
+
+    if (solid) {
+      solidBounds.push({
+        x, z, halfX: size.x * 0.42, halfZ: size.z * 0.42,
+        minY: floorY, maxY: floorY + size.y
+      });
+    }
+    return model;
+  });
+}
+
+// The centre deck becomes a proper factory catwalk, with real grating and
+// safety rails replacing some of the thin decorative bars.
+addKenneyModel('factory', 'catwalk-straight.glb', -2.15, 1.05, 0, 4.15, 0);
+addKenneyModel('factory', 'catwalk-straight.glb', 2.15, 1.05, 0, 4.15, Math.PI);
+addKenneyModel('factory', 'catwalk-stairs.glb', 0, 0.02, -5.3, 1.18, Math.PI);
+
+// Machinery gives the side lanes real silhouettes and more interesting cover.
+addKenneyModel('factory', 'machine-fortified.glb', -11.6, 0, -5.6, 2.25, 0, true);
+addKenneyModel('factory', 'machine-fortified.glb', 11.6, 0, 5.6, 2.25, Math.PI, true);
+addKenneyModel('factory', 'conveyor-bars-stripe.glb', -10.9, 0, 10.4, 4.2, Math.PI / 2);
+addKenneyModel('factory', 'pipe-large-long.glb', 10.8, 0, -10.0, 3.2, Math.PI / 2);
+
+// Authored gantry cranes and hanging lift assemblies on the far quay.
+addKenneyModel('factory', 'crane.glb', -15.4, 0, -27.0, 3.8, 0);
+addKenneyModel('factory', 'crane.glb', 15.4, 0, -27.0, 3.8, Math.PI);
+addKenneyModel('factory', 'crane-lift.glb', -15.4, 6.8, -27.0, 3.1, 0);
+addKenneyModel('factory', 'crane-lift.glb', 15.4, 6.8, -27.0, 3.1, Math.PI);
+
+// A stepped industrial skyline replaces the six placeholder blocks behind the
+// water. These meshes retain their authored colour maps and low-poly bevels.
+addKenneyModel('city-industrial', 'building-a.glb', -28.5, 0, -51.5, 6.0, 0.12);
+addKenneyModel('city-industrial', 'building-d.glb', -16.8, 0, -53.0, 7.0, -0.08);
+addKenneyModel('city-industrial', 'building-h.glb', -5.0, 0, -50.5, 8.0, 0.18);
+addKenneyModel('city-industrial', 'building-k.glb', 7.7, 0, -53.0, 7.2, Math.PI);
+addKenneyModel('city-industrial', 'detail-tank.glb', 20.2, 0, -50.4, 8.4, 0.1);
+addKenneyModel('city-industrial', 'chimney-large.glb', 29.2, 0, -47.7, 5.4, 0);
 
 // ---------------------------------------------------------------------------
 

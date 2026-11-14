@@ -1,0 +1,18 @@
+Tint3d environment assets
+==========================
+
+The following authored 3D models and colour maps are from Kenney:
+
+- Factory Kit: https://kenney.nl/assets/factory-kit
+- City Kit (Industrial): https://kenney.nl/assets/city-kit-industrial
+- Creator: Kenney / https://kenney.nl
+- Licence: Creative Commons Zero 1.0 Universal (CC0)
+- Licence text: https://creativecommons.org/publicdomain/zero/1.0/
+
+These assets are public-domain dedications under CC0. Commercial use, modification,
+and redistribution are permitted. Attribution is not required; credit is included
+here as a courtesy.
+
+Tint3d loads the GLB files locally from this repository. Each pack's
+Textures/colormap.png file is kept next to its GLB models because the GLB files
+reference that relative path.
