@@ -144,9 +144,17 @@ const paintHeightCtx = paintHeightCanvas.getContext('2d', { alpha: false });
 paintHeightCtx.fillStyle = '#080808';
 paintHeightCtx.fillRect(0, 0, 1024, 1024);
 
+const paintClearcoatCanvas = document.createElement('canvas');
+paintClearcoatCanvas.width = 1024;
+paintClearcoatCanvas.height = 1024;
+const paintClearcoatCtx = paintClearcoatCanvas.getContext('2d', { alpha: false });
+paintClearcoatCtx.fillStyle = '#000000';
+paintClearcoatCtx.fillRect(0, 0, 1024, 1024);
+
 const paintRoughnessTexture = new THREE.CanvasTexture(paintRoughnessCanvas);
 const paintHeightTexture = new THREE.CanvasTexture(paintHeightCanvas);
-for (const texture of [paintRoughnessTexture, paintHeightTexture]) {
+const paintClearcoatTexture = new THREE.CanvasTexture(paintClearcoatCanvas);
+for (const texture of [paintRoughnessTexture, paintHeightTexture, paintClearcoatTexture]) {
   texture.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
   texture.generateMipmaps = true;
   texture.minFilter = THREE.LinearMipmapLinearFilter;
@@ -415,8 +423,10 @@ const floor = mesh(
     bumpMap: paintHeightTexture,
     bumpScale: 0.038,
     metalness: 0.015,
-    clearcoat: 0.34,
-    clearcoatRoughness: 0.12
+    clearcoat: 0.88,
+    clearcoatMap: paintClearcoatTexture,
+    clearcoatRoughnessMap: paintRoughnessTexture,
+    clearcoatRoughness: 0.075
   }),
   scene, 0, -0.045, 0
 );
@@ -1308,8 +1318,23 @@ function stampWetSurface(px, py, r, points, seed) {
     paintHeightCtx.fill();
   }
   paintHeightCtx.restore();
+  paintClearcoatCtx.save();
+  trace(paintClearcoatCtx);
+  paintClearcoatCtx.clip();
+  const clearcoat = paintClearcoatCtx.createRadialGradient(
+    px - r * 0.22, py - r * 0.24, r * 0.02, px, py, r * 1.02
+  );
+  clearcoat.addColorStop(0, 'rgba(255,255,255,.98)');
+  clearcoat.addColorStop(.54, 'rgba(242,242,242,.88)');
+  clearcoat.addColorStop(.86, 'rgba(188,188,188,.50)');
+  clearcoat.addColorStop(1, 'rgba(0,0,0,0)');
+  paintClearcoatCtx.globalCompositeOperation = 'lighter';
+  paintClearcoatCtx.fillStyle = clearcoat;
+  paintClearcoatCtx.fillRect(px-r*1.2, py-r*1.2, r*2.4, r*2.4);
+  paintClearcoatCtx.restore();
   paintRoughnessTexture.needsUpdate = true;
   paintHeightTexture.needsUpdate = true;
+  paintClearcoatTexture.needsUpdate = true;
 }
 
 function drawSplat(position, team, radius, seed = Math.random()) {
@@ -2358,8 +2383,11 @@ function resetPaint() {
   paintRoughnessCtx.fillRect(0, 0, 1024, 1024);
   paintHeightCtx.fillStyle = '#080808';
   paintHeightCtx.fillRect(0, 0, 1024, 1024);
+  paintClearcoatCtx.fillStyle = '#000000';
+  paintClearcoatCtx.fillRect(0, 0, 1024, 1024);
   paintRoughnessTexture.needsUpdate = true;
   paintHeightTexture.needsUpdate = true;
+  paintClearcoatTexture.needsUpdate = true;
   seedArea(BLUE, 0, 15.5);
   seedArea(ORANGE, 0, -15.5);
   scoreCache = { blue: -1, orange: -1 };
