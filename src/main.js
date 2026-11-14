@@ -3155,7 +3155,8 @@ function resetMatch() {
     resetCharacterPose(actor);
   }
   player.health = 100;
-  sprintHeld = false;
+  sprintLocked = false;
+  updateSprintButton();
   jumpHeld = false;
   slideQueued = false;
   lastPlayerPaintPosition = new THREE.Vector3(player.position.x, 0, player.position.z);
