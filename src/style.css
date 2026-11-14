@@ -563,3 +563,31 @@ button { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
   .mobile-actions button { width: 37px; height: 37px; font-size: 7px; }
   #fire-button { width: 54px; height: 54px; font-size: 22px; }
 }
+
+
+/* Keep five touch actions grouped away from the left movement stick. */
+@media (max-width: 780px) {
+  .mobile-actions {
+    display: grid;
+    grid-template-columns: repeat(3, 42px);
+    grid-template-rows: 42px 54px;
+    align-items: center;
+    justify-items: center;
+    gap: 4px 6px;
+    right: 16px;
+    bottom: 4px;
+  }
+  #flow-button { grid-column: 1; grid-row: 1; }
+  #slide-button { grid-column: 2; grid-row: 1; }
+  #sprint-button { grid-column: 3; grid-row: 1; }
+  #jump-button { grid-column: 2; grid-row: 2; }
+  #fire-button { grid-column: 3; grid-row: 2; }
+}
+@media (max-width: 380px) {
+  .mobile-actions {
+    grid-template-columns: repeat(3, 37px);
+    grid-template-rows: 37px 50px;
+    right: 8px;
+    gap: 4px;
+  }
+}
