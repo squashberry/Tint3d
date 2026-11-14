@@ -85,10 +85,15 @@ function mesh(geometry, material, parent, x = 0, y = 0, z = 0) {
   parent.add(item);
   return item;
 }
+const solidBounds = [];
 function block(x, y, z, sx, sy, sz, color, options = {}) {
   const item = mesh(shared.box, mat('world-' + color, color, options.roughness ?? 0.74, options.metalness ?? 0.12, options.emissive ?? 0), scene, x, y, z);
   item.scale.set(sx, sy, sz);
   if (options.rotation) item.rotation.set(options.rotation.x || 0, options.rotation.y || 0, options.rotation.z || 0);
+  if (options.solid) solidBounds.push({
+    x, z, halfX: sx / 2, halfZ: sz / 2,
+    minY: y - sy / 2, maxY: y + sy / 2
+  });
   return item;
 }
 function cylinder(x, y, z, radius, height, color, rotationZ = 0) {
@@ -144,11 +149,11 @@ underfloor.scale.set(ARENA + 1.2, 0.7, ARENA + 1.2);
 // raised deck, loading ramps, service pipes, hazard stripes and light towers.
 block(0, -0.82, 0, 44, 0.28, 44, 0x111d28);
 for (const z of [-20.55, 20.55]) {
-  block(0, 0.35, z, 41.5, 1.2, 0.55, 0x172733);
+  block(0, 0.35, z, 41.5, 1.2, 0.55, 0x172733, { solid: true });
   block(0, 0.98, z, 41.5, 0.08, 0.12, 0x20a8bb, { emissive: 0x0c6c82 });
 }
 for (const x of [-20.55, 20.55]) {
-  block(x, 0.35, 0, 0.55, 1.2, 41.5, 0x172733);
+  block(x, 0.35, 0, 0.55, 1.2, 41.5, 0x172733, { solid: true });
   block(x, 0.98, 0, 0.12, 0.08, 41.5, 0x20a8bb, { emissive: 0x0c6c82 });
 }
 for (let i = -3; i <= 3; i++) {
@@ -156,13 +161,73 @@ for (let i = -3; i <= 3; i++) {
   block(i * 5.5, 0.09, 19.7, 2.2, 0.05, 0.035, i % 2 ? 0xffb25e : 0xd9e1d7);
 }
 
+function makeContainerTexture(baseColor, serial) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  const hex = '#' + baseColor.toString(16).padStart(6, '0');
+  ctx.fillStyle = hex;
+  ctx.fillRect(0, 0, 512, 256);
+  const shade = ctx.createLinearGradient(0, 0, 512, 256);
+  shade.addColorStop(0, 'rgba(255,255,255,.19)');
+  shade.addColorStop(.48, 'rgba(255,255,255,.025)');
+  shade.addColorStop(1, 'rgba(0,0,0,.36)');
+  ctx.fillStyle = shade;
+  ctx.fillRect(0, 0, 512, 256);
+  for (let x = 8; x < 512; x += 24) {
+    ctx.fillStyle = 'rgba(0,0,0,.15)';
+    ctx.fillRect(x, 0, 3, 256);
+    ctx.fillStyle = 'rgba(255,255,255,.10)';
+    ctx.fillRect(x + 3, 0, 2, 256);
+    for (const y of [12, 244]) {
+      ctx.fillStyle = 'rgba(230,245,235,.38)';
+      ctx.beginPath(); ctx.arc(x + 8, y, 2.2, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+  ctx.fillStyle = 'rgba(8,20,29,.72)';
+  ctx.fillRect(23, 26, 110, 54);
+  ctx.fillStyle = '#e7f2e8';
+  ctx.font = '900 25px sans-serif';
+  ctx.fillText('BW / ' + String(serial).padStart(2, '0'), 32, 49);
+  ctx.font = '700 9px sans-serif';
+  ctx.fillStyle = 'rgba(235,246,235,.78)';
+  ctx.fillText('BREAKWATER FREIGHT', 32, 65);
+  ctx.fillStyle = 'rgba(255,255,255,.12)';
+  ctx.fillRect(18, 218, 476, 4);
+  ctx.fillStyle = '#ffb66d';
+  for (let i = 0; i < 8; i++) {
+    ctx.beginPath();
+    ctx.moveTo(366 + i * 17, 232);
+    ctx.lineTo(378 + i * 17, 232);
+    ctx.lineTo(388 + i * 17, 249);
+    ctx.lineTo(376 + i * 17, 249);
+    ctx.closePath();
+    ctx.fill();
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
+  return texture;
+}
+let containerSerial = 1;
 function addContainer(x, z, sx, sz, color, height = 2.4, raised = 0) {
   const y = raised + height / 2;
-  block(x, y, z, sx, height, sz, color, { roughness: 0.58, metalness: 0.34 });
+  const shell = block(x, y, z, sx, height, sz, color, {
+    roughness: 0.61, metalness: 0.33, solid: true
+  });
+  shell.material = new THREE.MeshStandardMaterial({
+    map: makeContainerTexture(color, containerSerial++),
+    roughness: 0.61,
+    metalness: 0.30
+  });
   for (let i = -Math.floor(sx / 1.25); i <= Math.floor(sx / 1.25); i++) {
     block(x + i * 0.62, y, z - sz / 2 - 0.018, 0.045, height * 0.86, 0.035, 0x526b76);
   }
   block(x, raised + 0.14, z - sz / 2 - 0.04, sx * 0.88, 0.12, 0.08, color === 0x27566a ? 0x20d8e9 : 0xff835d, { emissive: color === 0x27566a ? 0x087c96 : 0x9d3429 });
+  for (const side of [-1, 1]) {
+    block(x + side * (sx / 2 - 0.10), raised + height - 0.12, z, 0.07, 0.13, sz * 0.82, 0x91a3a0);
+  }
 }
 addContainer(-15.2, -11.4, 7.2, 4.1, 0x27566a, 2.6);
 addContainer(14.8, -12.2, 7.1, 4.3, 0x704536, 2.6);
@@ -172,7 +237,7 @@ addContainer(-8.4, -1.5, 3.1, 5.2, 0x34495b, 1.65);
 addContainer(8.3, 1.2, 3.2, 5.2, 0x43515b, 1.65);
 
 // Raised centre deck and two walkable ramps.
-block(0, 0.91, 0, 10.5, 0.42, 6.0, 0x465761, { roughness: 0.65, metalness: 0.28 });
+block(0, 0.91, 0, 10.5, 0.42, 6.0, 0x465761, { roughness: 0.65, metalness: 0.28, solid: true });
 block(0, 1.14, 0, 9.8, 0.055, 5.5, 0x71868a, { roughness: 0.7, metalness: 0.2 });
 for (let x = -4; x <= 4; x += 2) block(x, 1.19, 0, 0.055, 0.04, 5.35, 0x233d4a);
 const rampAngle = Math.atan2(1.05, 4.0);
@@ -196,7 +261,7 @@ const coverPieces = [
   [0, 0.55, -13.5, 5.5, 1.1, 1.1, 0x3e515b],
   [0, 0.55, 13.5, 5.5, 1.1, 1.1, 0x3e515b]
 ];
-for (const c of coverPieces) block(...c);
+for (const c of coverPieces) block(...c.slice(0, 7), { solid: true });
 for (let i = 0; i < 7; i++) {
   const x = -17 + i * 5.65;
   cylinder(x, 0.58, -17.3, 0.22, 1.16, i % 2 ? 0x20b9ca : 0xff855e);
@@ -233,6 +298,29 @@ function groundHeight(x, z) {
   if (Math.abs(x) <= 2.85 && z < -2.9 && z > -6.9) return clamp((z + 6.9) / 4, 0, 1) * 1.05;
   return 0;
 }
+function isBlockedAt(x, z, feetY, radius = 0.46) {
+  for (const box of solidBounds) {
+    if (x < box.x - box.halfX - radius || x > box.x + box.halfX + radius) continue;
+    if (z < box.z - box.halfZ - radius || z > box.z + box.halfZ + radius) continue;
+    if (feetY >= box.maxY - 0.13) continue;
+    if (feetY + 1.75 <= box.minY) continue;
+    return true;
+  }
+  return false;
+}
+function moveOnGround(actor, dx, dz, radius = 0.46) {
+  const limit = actor.player ? 18.7 : 18.2;
+  const nextX = clamp(actor.position.x + dx, -limit, limit);
+  const xFeet = groundHeight(nextX, actor.position.z);
+  if (!isBlockedAt(nextX, actor.position.z, Math.max(actor.position.y, xFeet), radius)) actor.position.x = nextX;
+  else if (actor.velocity) actor.velocity.x = 0;
+  const nextZ = clamp(actor.position.z + dz, -limit, limit);
+  const zFeet = groundHeight(actor.position.x, nextZ);
+  if (!isBlockedAt(actor.position.x, nextZ, Math.max(actor.position.y, zFeet), radius)) actor.position.z = nextZ;
+  else if (actor.velocity) actor.velocity.z = 0;
+  actor.position.y = groundHeight(actor.position.x, actor.position.z);
+}
+
 
 // Small painted details on the arena floor.
 paintCtx.fillStyle = 'rgba(221,236,225,.20)';
@@ -366,7 +454,31 @@ function seedArea(team, x, z) {
 seedArea(BLUE, 0, 15.5);
 seedArea(ORANGE, 0, -15.5);
 
-const projectileGeometry = new THREE.SphereGeometry(0.13, 8, 7);
+const shadowCanvas = document.createElement('canvas');
+shadowCanvas.width = 128;
+shadowCanvas.height = 128;
+const shadowCtx = shadowCanvas.getContext('2d');
+const shadowGradient = shadowCtx.createRadialGradient(64, 64, 7, 64, 64, 62);
+shadowGradient.addColorStop(0, 'rgba(0,0,0,.42)');
+shadowGradient.addColorStop(.45, 'rgba(0,0,0,.22)');
+shadowGradient.addColorStop(1, 'rgba(0,0,0,0)');
+shadowCtx.fillStyle = shadowGradient;
+shadowCtx.fillRect(0, 0, 128, 128);
+const shadowTexture = new THREE.CanvasTexture(shadowCanvas);
+const shadowGeometry = new THREE.PlaneGeometry(1, 1);
+const shadowMaterial = new THREE.MeshBasicMaterial({
+  map: shadowTexture, transparent: true, depthWrite: false,
+  color: 0x07131a, opacity: 0.72, polygonOffset: true, polygonOffsetFactor: -2
+});
+function updateActorShadow(actor) {
+  if (!actor.shadow) return;
+  actor.shadow.visible = actor.group.visible;
+  actor.shadow.position.set(actor.position.x, groundHeight(actor.position.x, actor.position.z) + 0.025, actor.position.z);
+  const height = Math.max(0, actor.position.y - groundHeight(actor.position.x, actor.position.z));
+  actor.shadow.scale.set(1.35 + height * 0.35, 0.83 + height * 0.22, 1);
+  actor.shadow.material.opacity = clamp(0.72 - height * 0.22, 0.26, 0.72);
+}
+const projectileGeometry = new THREE.SphereGeometry(0.13, 10, 8);
 const projectileMaterials = {
   1: new THREE.MeshBasicMaterial({ color: TEAM[1].ink }),
   2: new THREE.MeshBasicMaterial({ color: TEAM[2].ink })
@@ -375,22 +487,22 @@ const projectiles = [];
 const particles = [];
 function spawnSplash(position, team) {
   const color = team === BLUE ? 0x20d8e9 : 0xff7652;
-  const ring = new THREE.Mesh(new THREE.RingGeometry(0.15, 0.25, 14), new THREE.MeshBasicMaterial({
-    color, transparent: true, opacity: 0.72, side: THREE.DoubleSide, depthWrite: false
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.15, 0.25, 18), new THREE.MeshBasicMaterial({
+    color, transparent: true, opacity: 0.82, side: THREE.DoubleSide, depthWrite: false
   }));
   ring.rotation.x = -Math.PI / 2;
   ring.position.set(position.x, groundHeight(position.x, position.z) + 0.07, position.z);
   scene.add(ring);
   particles.push({ mesh: ring, life: 0.42, maxLife: 0.42, ring: true });
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 6; i++) {
     const dot = mesh(shared.smallSphere, projectileMaterials[team], scene, position.x, groundHeight(position.x, position.z) + 0.1, position.z);
     dot.layers.disable(1);
     const angle = Math.random() * Math.PI * 2;
-    const scale = 0.07 + Math.random() * 0.06;
-    dot.scale.setScalar(scale);
+    const scale = 0.075 + Math.random() * 0.09;
+    dot.scale.set(scale * 1.35, scale * 0.82, scale);
     particles.push({
-      mesh: dot, life: 0.34 + Math.random() * 0.18, maxLife: 0.52,
-      velocity: new THREE.Vector3(Math.cos(angle) * (1 + Math.random() * 2), 1 + Math.random() * 1.5, Math.sin(angle) * (1 + Math.random() * 2))
+      mesh: dot, life: 0.36 + Math.random() * 0.24, maxLife: 0.60,
+      velocity: new THREE.Vector3(Math.cos(angle) * (1.4 + Math.random() * 2.5), 1.3 + Math.random() * 2.2, Math.sin(angle) * (1.4 + Math.random() * 2.5))
     });
   }
 }
@@ -423,6 +535,7 @@ function makeCharacter(team, variation = 0) {
   const bodyMat = mat('char-body-' + team, team === BLUE ? 0x159bb4 : 0xd85c46, 0.58, 0.08);
   const trimMat = mat('char-trim-' + team, team === BLUE ? 0x092f45 : 0x54212c, 0.55, 0.15);
   const clothMat = mat('char-cloth-' + team, team === BLUE ? 0x25384a : 0x44333b, 0.83, 0.03);
+  const accentMat = mat('char-accent-' + team, team === BLUE ? 0x20d8e9 : 0xff7652, 0.48, 0.18, team === BLUE ? 0x087e9a : 0x8b3025);
   const skinColors = [0xb66e4c, 0xd39269, 0x8b523f, 0xd6a078, 0x9d6349];
   const skin = mat('skin-' + variation, skinColors[variation % skinColors.length], 0.72, 0.02);
   const hairColors = [0x17252b, 0x3e2522, 0x69462d, 0x202a3b, 0x4d293e];
@@ -430,84 +543,116 @@ function makeCharacter(team, variation = 0) {
   const white = mat('eye-white', 0xf5f2df, 0.42, 0.02);
   const dark = mat('eye-dark', 0x12202a, 0.4, 0.02);
   const sneaker = mat('sneaker-' + team, team === BLUE ? 0xc5f7f2 : 0xffd6be, 0.58, 0.05);
-  mesh(shared.torso, bodyMat, group, 0, 1.03, 0.02);
-  const jacket = mesh(shared.box, clothMat, group, 0, 1.10, -0.04);
-  jacket.scale.set(0.62, 0.48, 0.49);
-  const chest = mesh(shared.box, bodyMat, group, 0, 1.12, -0.30);
-  chest.scale.set(0.31, 0.24, 0.035);
-  mesh(shared.head, skin, group, 0, 1.73, -0.04);
-  const hairCap = mesh(shared.sphere, hair, group, 0, 1.94, 0.005);
-  hairCap.scale.set(1.02, 0.52, 1.03);
-  const fringe = mesh(shared.sphere, hair, group, 0, 1.84, -0.25);
-  fringe.scale.set(0.77, 0.28, 0.45);
+  const addPart = (geometry, material, parent, x, y, z, scale) => {
+    const part = mesh(geometry, material, parent, x, y, z);
+    if (scale) part.scale.set(scale[0], scale[1], scale[2]);
+    return part;
+  };
+
+  // Compact athletic body with separate torso, collar, belt and layered streetwear.
+  addPart(shared.torso, bodyMat, group, 0, 1.03, 0.02);
+  addPart(shared.box, clothMat, group, 0, 1.08, -0.045, [0.67, 0.46, 0.52]);
+  addPart(shared.box, bodyMat, group, 0, 1.12, -0.315, [0.32, 0.25, 0.04]);
+  addPart(shared.box, accentMat, group, 0, 0.79, -0.08, [0.62, 0.11, 0.50]);
+  addPart(shared.ring, trimMat, group, 0, 1.36, -0.03, [0.66, 0.66, 0.66]);
+  addPart(shared.sphere, skin, group, 0, 1.77, -0.035, [0.87, 0.98, 0.84]);
+  addPart(shared.sphere, hair, group, 0, 1.97, 0.015, [1.02, 0.50, 1.00]);
+  addPart(shared.sphere, hair, group, 0, 1.86, -0.245, [0.78, 0.28, 0.44]);
+
   for (const side of [-1, 1]) {
-    mesh(shared.smallSphere, white, group, side * 0.105, 1.72, -0.315).scale.set(0.09, 0.105, 0.045);
-    mesh(shared.smallSphere, dark, group, side * 0.105, 1.72, -0.354).scale.set(0.045, 0.065, 0.025);
-    const arm = mesh(shared.limb, clothMat, group, side * 0.43, 1.17, -0.04);
-    arm.rotation.z = side * -0.28;
-    mesh(shared.smallSphere, skin, group, side * 0.47, 0.88, -0.16).scale.set(0.13, 0.13, 0.13);
-    const leg = mesh(shared.limb, clothMat, group, side * 0.17, 0.48, 0.025);
-    leg.rotation.x = 0.08;
-    mesh(shared.shoe, sneaker, group, side * 0.18, 0.13, -0.10);
+    addPart(shared.smallSphere, white, group, side * 0.105, 1.75, -0.306, [0.092, 0.105, 0.048]);
+    addPart(shared.smallSphere, dark, group, side * 0.105, 1.75, -0.348, [0.047, 0.064, 0.025]);
+    addPart(shared.box, hair, group, side * 0.105, 1.865, -0.351, [0.13, 0.035, 0.028]);
+    addPart(shared.smallSphere, skin, group, side * 0.278, 1.72, -0.02, [0.075, 0.11, 0.08]);
   }
-  const pack = mesh(shared.box, trimMat, group, 0, 1.08, 0.39);
-  pack.scale.set(0.48, 0.53, 0.25);
-  const packStripe = mesh(shared.box, bodyMat, group, 0, 1.09, 0.53);
-  packStripe.scale.set(0.29, 0.12, 0.025);
-  const headband = mesh(shared.box, bodyMat, group, 0, 1.88, -0.27);
-  headband.scale.set(0.57, 0.09, 0.09);
-  const browMat = mat('brow-' + variation, hairColors[variation % hairColors.length], 0.7, 0.02);
-  for (const side of [-1, 1]) {
-    const brow = mesh(shared.box, browMat, group, side * 0.105, 1.835, -0.354);
-    brow.scale.set(0.12, 0.035, 0.025);
-    const ear = mesh(shared.smallSphere, skin, group, side * 0.292, 1.69, -0.015);
-    ear.scale.set(0.07, 0.105, 0.075);
-    const shoulder = mesh(shared.sphere, trimMat, group, side * 0.39, 1.36, -0.045);
-    shoulder.scale.set(0.20, 0.14, 0.22);
-    const knee = mesh(shared.box, bodyMat, group, side * 0.17, 0.39, -0.105);
-    knee.scale.set(0.22, 0.12, 0.09);
-    const sole = mesh(shared.box, trimMat, group, side * 0.18, 0.055, -0.10);
-    sole.scale.set(0.35, 0.055, 0.50);
-  }
-  const mouth = mesh(shared.box, dark, group, 0, 1.615, -0.332);
-  mouth.scale.set(0.095, 0.025, 0.022);
-  // Different cut silhouettes keep the crew from reading as recoloured duplicates.
+  addPart(shared.box, dark, group, 0, 1.63, -0.321, [0.09, 0.026, 0.02]);
+  const nose = addPart(shared.sphere, skin, group, 0, 1.70, -0.35, [0.035, 0.045, 0.045]);
+  nose.material = skin;
+
+  // Individual silhouette accessories: split locks, cap brim or tied-up hair.
   if (variation % 3 === 0) {
     for (const side of [-1, 1]) {
-      const lock = mesh(shared.limb, hair, group, side * 0.25, 1.65, 0.055);
-      lock.scale.set(0.60, 0.55, 0.62);
-      lock.rotation.z = side * -0.36;
+      const lock = addPart(shared.limb, hair, group, side * 0.245, 1.63, 0.03, [0.62, 0.58, 0.70]);
+      lock.rotation.z = side * -0.32;
     }
+    addPart(shared.sphere, hair, group, 0, 2.11, 0.10, [0.34, 0.22, 0.35]);
   } else if (variation % 3 === 1) {
-    const cap = mesh(shared.box, trimMat, group, 0, 2.02, -0.015);
-    cap.scale.set(0.66, 0.13, 0.64);
-    const brim = mesh(shared.box, bodyMat, group, 0, 1.94, -0.30);
-    brim.scale.set(0.62, 0.055, 0.36);
+    addPart(shared.box, trimMat, group, 0, 2.015, -0.01, [0.70, 0.13, 0.68]);
+    addPart(shared.box, accentMat, group, 0, 1.95, -0.29, [0.67, 0.055, 0.39]);
+    addPart(shared.box, hair, group, 0, 1.91, 0.26, [0.42, 0.24, 0.27]);
   } else {
-    const topKnot = mesh(shared.sphere, hair, group, 0, 2.18, 0.06);
-    topKnot.scale.set(0.19, 0.22, 0.18);
-    const sideLock = mesh(shared.limb, hair, group, 0.28, 1.65, 0.04);
-    sideLock.scale.set(0.62, 0.58, 0.62);
-    sideLock.rotation.z = -0.42;
+    addPart(shared.sphere, hair, group, 0, 2.18, 0.08, [0.19, 0.22, 0.18]);
+    const lock = addPart(shared.limb, hair, group, 0.28, 1.64, 0.02, [0.62, 0.58, 0.68]);
+    lock.rotation.z = -0.42;
+    addPart(shared.box, accentMat, group, 0, 1.88, -0.27, [0.58, 0.075, 0.07]);
   }
-  // Original compact pressure sprayer: twin reservoir, offset grip and wide nozzle.
+
+  // Backpack, pressure gauge and twin reservoirs create a readable gear silhouette.
+  addPart(shared.box, trimMat, group, 0, 1.08, 0.39, [0.49, 0.55, 0.29]);
+  addPart(shared.box, accentMat, group, 0, 1.10, 0.55, [0.29, 0.13, 0.035]);
+  for (const side of [-1, 1]) {
+    const tank = addPart(shared.cylinder, bodyMat, group, side * 0.17, 1.13, 0.55, [0.095, 0.42, 0.095]);
+    tank.rotation.x = Math.PI / 2;
+    addPart(shared.ring, accentMat, group, side * 0.17, 1.14, 0.69, [0.35, 0.35, 0.35]);
+  }
+  addPart(shared.smallSphere, accentMat, group, 0.27, 1.34, 0.45, [0.11, 0.11, 0.11]);
+
+  // Pivoted limbs: the swing now comes from shoulders and hips instead of sliding parts.
+  const leftArm = new THREE.Group();
+  leftArm.position.set(-0.39, 1.36, -0.035);
+  group.add(leftArm);
+  addPart(shared.sphere, trimMat, leftArm, 0, 0, 0, [0.21, 0.18, 0.20]);
+  const leftSleeve = addPart(shared.limb, clothMat, leftArm, 0, -0.22, 0, [1, 1.05, 1]);
+  leftSleeve.rotation.x = -0.12;
+  addPart(shared.limb, skin, leftArm, 0, -0.47, -0.08, [0.82, 0.85, 0.82]);
+  addPart(shared.smallSphere, accentMat, leftArm, 0, -0.59, -0.13, [0.14, 0.14, 0.14]);
+
+  const rightArm = new THREE.Group();
+  rightArm.position.set(0.39, 1.36, -0.035);
+  group.add(rightArm);
+  addPart(shared.sphere, trimMat, rightArm, 0, 0, 0, [0.21, 0.18, 0.20]);
+  const rightSleeve = addPart(shared.limb, clothMat, rightArm, 0, -0.20, -0.03);
+  rightSleeve.rotation.x = -0.38;
+  addPart(shared.limb, skin, rightArm, 0, -0.39, -0.23, [0.82, 0.82, 0.82]);
+  addPart(shared.smallSphere, skin, rightArm, 0, -0.51, -0.31, [0.14, 0.14, 0.14]);
+
+  const legs = [];
+  for (const side of [-1, 1]) {
+    const legRig = new THREE.Group();
+    legRig.position.set(side * 0.17, 0.67, 0.025);
+    group.add(legRig);
+    addPart(shared.limb, clothMat, legRig, 0, -0.17, 0, [0.88, 1.04, 0.88]);
+    addPart(shared.limb, trimMat, legRig, 0, -0.40, -0.025, [0.78, 0.76, 0.82]);
+    addPart(shared.shoe, sneaker, legRig, 0, -0.59, -0.13, [1.05, 0.88, 1.05]);
+    addPart(shared.box, trimMat, legRig, 0, -0.675, -0.13, [1.08, 0.20, 1.12]);
+    legs.push(legRig);
+  }
+
+  // Original "Twin Jet" pressure sprayer, with a muzzle ring, side tank and grip.
   const weapon = new THREE.Group();
-  const barrel = mesh(shared.cylinder, trimMat, weapon, 0, 0, -0.39);
+  const barrel = addPart(shared.cylinder, trimMat, weapon, 0, 0, -0.40, [0.125, 0.74, 0.125]);
   barrel.rotation.x = Math.PI / 2;
-  barrel.scale.set(0.13, 0.77, 0.13);
-  const nozzle = mesh(shared.cylinder, bodyMat, weapon, 0, 0, -0.82);
+  const barrelBand = addPart(shared.cylinder, accentMat, weapon, 0, 0, -0.67, [0.155, 0.09, 0.155]);
+  barrelBand.rotation.x = Math.PI / 2;
+  const nozzle = addPart(shared.cylinder, bodyMat, weapon, 0, 0, -0.82, [0.22, 0.105, 0.22]);
   nozzle.rotation.x = Math.PI / 2;
-  nozzle.scale.set(0.22, 0.10, 0.22);
-  const tank = mesh(shared.sphere, bodyMat, weapon, 0.20, 0.13, 0.12);
-  tank.scale.set(0.17, 0.18, 0.24);
-  const grip = mesh(shared.box, trimMat, weapon, 0.02, -0.20, -0.05);
-  grip.scale.set(0.13, 0.30, 0.17);
+  const muzzleRing = addPart(shared.ring, accentMat, weapon, 0, 0, -0.90, [0.54, 0.54, 0.54]);
+  muzzleRing.rotation.x = Math.PI / 2;
+  addPart(shared.sphere, bodyMat, weapon, 0.21, 0.13, 0.10, [0.18, 0.20, 0.24]);
+  addPart(shared.cylinder, trimMat, weapon, 0.21, 0.13, 0.10, [0.15, 0.29, 0.15]);
+  const grip = addPart(shared.box, trimMat, weapon, 0.02, -0.20, -0.05, [0.14, 0.30, 0.17]);
+  grip.rotation.x = -0.12;
+  const flash = addPart(shared.sphere, new THREE.MeshBasicMaterial({
+    color: palette.ink, transparent: true, opacity: 0.9, depthWrite: false
+  }), weapon, 0, 0, -1.02, [0.13, 0.13, 0.13]);
+  flash.visible = false;
   weapon.position.set(0.47, 1.20, -0.24);
   group.add(weapon);
   group.userData.weapon = weapon;
-  const limbs = group.children.filter((child) => child.geometry === shared.limb);
-  group.userData.arms = [limbs[0], limbs[2]];
-  group.userData.legs = [limbs[1], limbs[3]];
+  group.userData.flash = flash;
+  group.userData.flashTimer = 0;
+  group.userData.arms = [leftArm, rightArm];
+  group.userData.legs = legs;
   group.userData.palette = palette;
   group.traverse((child) => { if (child.isMesh) child.layers.enable(1); });
   return group;
@@ -525,6 +670,12 @@ function createActor(team, variation, x, z, playerControlled = false) {
     velocity: new THREE.Vector3(), recoil: 0
   };
   if (playerControlled) group.traverse((child) => { if (child.isMesh) child.layers.disable(1); });
+  const shadow = new THREE.Mesh(shadowGeometry, shadowMaterial);
+  shadow.rotation.x = -Math.PI / 2;
+  shadow.scale.set(1.35, 0.83, 1);
+  shadow.position.set(x, groundHeight(x, z) + 0.025, z);
+  scene.add(shadow);
+  actor.shadow = shadow;
   group.position.copy(actor.position);
   scene.add(group);
   return actor;
@@ -619,29 +770,56 @@ function getAimPoint() {
   return raycaster.ray.origin.clone().addScaledVector(raycaster.ray.direction, 32);
 }
 function muzzlePosition(actor) {
-  const forward = new THREE.Vector3(Math.sin(actor.group.rotation.y), 0, -Math.cos(actor.group.rotation.y));
-  const right = new THREE.Vector3(forward.z, 0, -forward.x);
-  return actor.position.clone().addScaledVector(forward, 0.53).addScaledVector(right, 0.30).add(new THREE.Vector3(0, 1.27, 0));
+  const shotPitch = actor.player ? clamp((0.20 - pitch) * 0.65, -0.12, 0.82) : 0.035;
+  const yawAngle = actor.group.rotation.y;
+  const forward = new THREE.Vector3(
+    Math.sin(yawAngle) * Math.cos(shotPitch),
+    Math.sin(shotPitch),
+    -Math.cos(yawAngle) * Math.cos(shotPitch)
+  );
+  const right = new THREE.Vector3(Math.cos(yawAngle), 0, Math.sin(yawAngle));
+  return actor.position.clone()
+    .addScaledVector(forward, 0.72)
+    .addScaledVector(right, 0.30)
+    .add(new THREE.Vector3(0, 1.30, 0));
 }
 function spawnProjectile(origin, target, team, owner) {
-  const mesh = new THREE.Mesh(projectileGeometry, projectileMaterials[team]);
-  mesh.position.copy(origin);
-  scene.add(mesh);
+  const shot = new THREE.Group();
+  const core = new THREE.Mesh(projectileGeometry, projectileMaterials[team]);
+  core.scale.set(0.88, 0.88, 1.65);
+  shot.add(core);
+  const glow = new THREE.Mesh(
+    projectileGeometry,
+    new THREE.MeshBasicMaterial({ color: team === BLUE ? 0x77f5ff : 0xffbb91, transparent: true, opacity: 0.24, depthWrite: false })
+  );
+  glow.scale.set(1.8, 1.8, 2.1);
+  shot.add(glow);
+  shot.position.copy(origin);
+  scene.add(shot);
   const delta = target.clone().sub(origin);
-  const distance = Math.max(1, Math.hypot(delta.x, delta.z));
-  const travel = clamp(distance / 34, 0.12, 0.95);
-  const gravity = -1.8;
-  const velocity = new THREE.Vector3(delta.x / travel, delta.y / travel - 0.5 * gravity * travel, delta.z / travel);
-  projectiles.push({ mesh, velocity, gravity, life: 1.3, team, owner, radius: 0.34 });
+  const distance = Math.max(1, delta.length());
+  const travel = clamp(distance / 38, 0.10, 0.90);
+  const gravity = -1.65;
+  const velocity = new THREE.Vector3(
+    delta.x / travel,
+    delta.y / travel - 0.5 * gravity * travel,
+    delta.z / travel
+  );
+  shot.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), velocity.clone().normalize());
+  projectiles.push({ mesh: shot, velocity, gravity, life: 1.2, team, owner, radius: 0.38 });
 }
 function fireActor(actor, target) {
   if (actor.fireCooldown > 0 || actor.ink < 4 || !actor.group.visible) return;
-  if (actor.player) actor.group.rotation.y = yaw;
-  actor.fireCooldown = actor.player ? 0.115 : 0.95 + Math.random() * 0.6;
+  if (actor.player) {
+    actor.group.rotation.y = yaw;
+    actor.group.userData.weapon.rotation.x = clamp((0.20 - pitch) * 0.65, -0.12, 0.82);
+  }
+  actor.fireCooldown = actor.player ? 0.105 : 0.82 + Math.random() * 0.48;
   actor.ink = Math.max(0, actor.ink - (actor.player ? 3.7 : 3.2));
-  actor.recoil = actor.player ? 0.13 : 0.055;
+  actor.recoil = actor.player ? 0.16 : 0.075;
+  actor.group.userData.flashTimer = 0.075;
+  actor.group.userData.flash.visible = true;
   const destination = target.clone();
-  // Player shots preserve the actual reticle height. Bots aim around torso height.
   if (!actor.player) {
     destination.y += 0.08;
     destination.x += (Math.random() - 0.5) * 1.5;
@@ -682,6 +860,7 @@ function respawnActor(actor) {
   actor.group.visible = true;
   actor.group.position.copy(actor.position);
   actor.group.rotation.set(0, actor.team === BLUE ? 0 : Math.PI, 0);
+  updateActorShadow(actor);
 }
 function damageActor(actor, amount, source) {
   if (actor.invulnerable > 0 || !actor.group.visible) return;
@@ -707,8 +886,10 @@ function updateProjectiles(delta) {
   for (let i = projectiles.length - 1; i >= 0; i--) {
     const p = projectiles[i];
     p.life -= delta;
+    const previous = p.mesh.position.clone();
     p.mesh.position.addScaledVector(p.velocity, delta);
     p.velocity.y += p.gravity * delta;
+    p.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), p.velocity.clone().normalize());
     const pos = p.mesh.position;
     let hitActor = false;
     for (const actor of actors) {
@@ -724,9 +905,14 @@ function updateProjectiles(delta) {
       }
     }
     const floorY = groundHeight(pos.x, pos.z);
-    if (hitActor || pos.y <= floorY + 0.12 || Math.abs(pos.x) > HALF || Math.abs(pos.z) > HALF || p.life <= 0) {
+    const hitWorld = solidBounds.some((box) =>
+      pos.x > box.x - box.halfX && pos.x < box.x + box.halfX &&
+      pos.z > box.z - box.halfZ && pos.z < box.z + box.halfZ &&
+      pos.y > box.minY && pos.y < box.maxY
+    );
+    if (hitActor || hitWorld || pos.y <= floorY + 0.12 || Math.abs(pos.x) > HALF || Math.abs(pos.z) > HALF || p.life <= 0) {
       if (!hitActor && Math.abs(pos.x) < HALF && Math.abs(pos.z) < HALF) {
-        paintAt(new THREE.Vector3(pos.x, 0, pos.z), p.team, p.team === BLUE ? 1.55 : 1.45);
+        paintAt(new THREE.Vector3(pos.x, 0, pos.z), p.team, hitWorld ? 1.85 : (p.team === BLUE ? 1.55 : 1.45));
       }
       removeProjectile(i);
     }
@@ -769,12 +955,11 @@ function updatePlayer(delta) {
   }
   player.flow = Math.max(0, player.flow - delta);
   player.flowCooldown = Math.max(0, player.flowCooldown - delta);
-  const speed = player.flow > 0 ? 15.8 : 9.0;
+  const speed = player.flow > 0 ? 16.2 : 9.2;
   const desiredVelocity = new THREE.Vector3(move.x * speed, 0, move.z * speed);
-  const response = move.lengthSq() > 0.001 ? 31 : 39;
+  const response = move.lengthSq() > 0.001 ? 34 : 42;
   player.velocity.lerp(desiredVelocity, 1 - Math.exp(-response * delta));
-  player.position.x = clamp(player.position.x + player.velocity.x * delta, -18.7, 18.7);
-  player.position.z = clamp(player.position.z + player.velocity.z * delta, -18.7, 18.7);
+  moveOnGround(player, player.velocity.x * delta, player.velocity.z * delta, 0.48);
   const baseY = groundHeight(player.position.x, player.position.z);
   if (jumpQueued && player.grounded) {
     player.verticalVelocity = 7.3;
@@ -810,23 +995,30 @@ function updatePlayer(delta) {
 function animateActor(actor, moving, delta = 0.016) {
   const legs = actor.group.userData.legs || [];
   const arms = actor.group.userData.arms || [];
-  const swing = moving > 0.05 ? Math.sin(actor.walkPhase) * 0.62 : 0;
+  const swing = moving > 0.05 ? Math.sin(actor.walkPhase) * 0.68 : 0;
   if (legs.length >= 2) {
     legs[0].rotation.x = swing;
     legs[1].rotation.x = -swing;
   }
   if (arms.length >= 2) {
-    arms[0].rotation.x = -0.22 - swing * 0.32;
-    arms[1].rotation.x = -0.22 + swing * 0.32;
+    arms[0].rotation.x = -0.20 + swing * 0.18;
+    arms[1].rotation.x = -0.48 - swing * 0.12;
   }
-  actor.recoil = Math.max(0, (actor.recoil || 0) - delta * 0.9);
+  actor.recoil = Math.max(0, (actor.recoil || 0) - delta * 1.9);
   const weapon = actor.group.userData.weapon;
   if (weapon) {
     weapon.position.z = -0.24 + actor.recoil;
-    weapon.rotation.x = moving > 0.05 ? Math.sin(actor.walkPhase * 2) * 0.025 : 0;
+    if (!actor.player) weapon.rotation.x = 0;
+  }
+  const flash = actor.group.userData.flash;
+  if (flash) {
+    actor.group.userData.flashTimer = Math.max(0, actor.group.userData.flashTimer - delta);
+    flash.visible = actor.group.userData.flashTimer > 0;
+    flash.scale.setScalar(0.65 + Math.random() * 0.65);
   }
   const bob = moving > 0.05 ? Math.abs(Math.sin(actor.walkPhase * 2)) * 0.055 : 0;
   actor.group.position.y = actor.position.y + bob;
+  updateActorShadow(actor);
 }
 function updateBots(delta) {
   for (const actor of [...blueBots, ...orangeBots]) {
@@ -850,13 +1042,15 @@ function updateBots(delta) {
     direction.y = 0;
     if (direction.lengthSq() > 0.2) {
       direction.normalize();
-      actor.position.x = clamp(actor.position.x + direction.x * 4.05 * delta, -18.2, 18.2);
-      actor.position.z = clamp(actor.position.z + direction.z * 4.05 * delta, -18.2, 18.2);
-      actor.position.y = groundHeight(actor.position.x, actor.position.z);
+      moveOnGround(actor, direction.x * 4.25 * delta, direction.z * 4.25 * delta, 0.43);
       actor.group.position.copy(actor.position);
-      actor.group.rotation.y = Math.atan2(-direction.x, -direction.z);
-      actor.walkPhase += delta * 8;
+      const desiredYaw = Math.atan2(-direction.x, -direction.z);
+      const turn = Math.atan2(Math.sin(desiredYaw - actor.group.rotation.y), Math.cos(desiredYaw - actor.group.rotation.y));
+      actor.group.rotation.y += turn * (1 - Math.exp(-14 * delta));
+      actor.walkPhase += delta * 9;
       animateActor(actor, 1, delta);
+    } else {
+      animateActor(actor, 0, delta);
     }
     if (actor.paintCooldown <= 0) {
       actor.paintCooldown = 0.72 + Math.random() * 0.45;
