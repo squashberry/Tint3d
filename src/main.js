@@ -128,55 +128,256 @@ const paintCanvas = document.createElement('canvas');
 paintCanvas.width = 1024;
 paintCanvas.height = 1024;
 const paintCtx = paintCanvas.getContext('2d', { alpha: false });
-paintCtx.fillStyle = '#35464d';
-paintCtx.fillRect(0, 0, 1024, 1024);
-const concreteWash = paintCtx.createLinearGradient(0, 0, 1024, 1024);
-concreteWash.addColorStop(0, 'rgba(215,230,218,.12)');
-concreteWash.addColorStop(.52, 'rgba(104,139,139,.025)');
-concreteWash.addColorStop(1, 'rgba(8,24,31,.26)');
-paintCtx.fillStyle = concreteWash;
-paintCtx.fillRect(0, 0, 1024, 1024);
-for (let i = 0; i < 2100; i++) {
-  const x = Math.random() * 1024;
-  const y = Math.random() * 1024;
-  const r = Math.random() * 2.2 + 0.35;
-  paintCtx.fillStyle = Math.random() > 0.5 ? 'rgba(190,214,218,.045)' : 'rgba(0,0,0,.08)';
-  paintCtx.beginPath();
-  paintCtx.arc(x, y, r, 0, Math.PI * 2);
-  paintCtx.fill();
+function drawArenaBaseArtwork(ctx) {
+  const W = 1024;
+  const H = 1024;
+
+  // Sun-washed poured concrete, with subtle aggregate and patchy weathering.
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#8b9990';
+  ctx.fillRect(0, 0, W, H);
+  const wash = ctx.createLinearGradient(0, 0, W, H);
+  wash.addColorStop(0, 'rgba(235,239,219,.40)');
+  wash.addColorStop(.36, 'rgba(177,195,181,.12)');
+  wash.addColorStop(.72, 'rgba(71,91,88,.10)');
+  wash.addColorStop(1, 'rgba(27,45,49,.24)');
+  ctx.fillStyle = wash;
+  ctx.fillRect(0, 0, W, H);
+
+  // Large, low-contrast concrete patches stop the ground reading as one flat colour.
+  for (let i = 0; i < 145; i++) {
+    const x = Math.random() * W;
+    const y = Math.random() * H;
+    const r = 18 + Math.random() * 66;
+    const g = ctx.createRadialGradient(x, y, 1, x, y, r);
+    const light = Math.random() > .48;
+    g.addColorStop(0, light ? 'rgba(230,238,221,.10)' : 'rgba(27,47,50,.09)');
+    g.addColorStop(1, 'rgba(70,92,87,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  for (let i = 0; i < 2450; i++) {
+    const x = Math.random() * W;
+    const y = Math.random() * H;
+    const r = .25 + Math.random() * 1.35;
+    ctx.fillStyle = Math.random() > .48 ? 'rgba(239,244,228,.14)' : 'rgba(18,34,39,.13)';
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Expansion joints and inset slab borders.
+  ctx.lineWidth = 3;
+  for (let p = 128; p < W; p += 128) {
+    ctx.strokeStyle = 'rgba(24,43,48,.12)';
+    ctx.beginPath(); ctx.moveTo(p, 0); ctx.lineTo(p, H); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, p); ctx.lineTo(W, p); ctx.stroke();
+    ctx.strokeStyle = 'rgba(241,245,226,.15)';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(p + 3, 0); ctx.lineTo(p + 3, H); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, p + 3); ctx.lineTo(W, p + 3); ctx.stroke();
+    ctx.lineWidth = 3;
+  }
+  ctx.strokeStyle = 'rgba(34,54,57,.24)';
+  ctx.lineWidth = 8;
+  ctx.strokeRect(20, 20, 984, 984);
+  ctx.strokeStyle = 'rgba(237,242,224,.30)';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(30, 30, 964, 964);
+
+  // Slab corner anchors and patched repair seams.
+  for (let x = 32; x <= 992; x += 128) {
+    for (let y = 32; y <= 992; y += 128) {
+      ctx.fillStyle = 'rgba(29,49,51,.23)';
+      ctx.beginPath(); ctx.arc(x, y, 2.2, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgba(242,245,226,.25)';
+      ctx.beginPath(); ctx.arc(x - 1, y - 1, .8, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+  ctx.lineCap = 'round';
+  for (let i = 0; i < 115; i++) {
+    const x = Math.random() * W;
+    const y = Math.random() * H;
+    const length = 4 + Math.random() * 26;
+    ctx.strokeStyle = Math.random() > .5 ? 'rgba(248,246,224,.13)' : 'rgba(26,43,46,.13)';
+    ctx.lineWidth = .6 + Math.random() * 1.1;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + length, y + (Math.random() - .5) * 3);
+    ctx.stroke();
+  }
+
+  // Painted service lanes and loading-yard bay outlines.
+  ctx.save();
+  ctx.globalAlpha = .50;
+  ctx.strokeStyle = '#e9eee0';
+  ctx.lineWidth = 8;
+  ctx.setLineDash([34, 24]);
+  ctx.beginPath(); ctx.moveTo(512, 72); ctx.lineTo(512, 952); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(72, 512); ctx.lineTo(952, 512); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.globalAlpha = .38;
+  ctx.lineWidth = 5;
+  for (const y of [112, 912]) {
+    for (let x = 116; x < 908; x += 112) {
+      ctx.strokeRect(x, y - 24, 76, 48);
+    }
+  }
+  ctx.restore();
+
+  // Safety hatching along the working edges of the yard.
+  function hazardStrip(x, y, w, h, step = 24) {
+    ctx.save();
+    ctx.fillStyle = 'rgba(28,45,48,.50)';
+    ctx.fillRect(x, y, w, h);
+    ctx.beginPath(); ctx.rect(x, y, w, h); ctx.clip();
+    ctx.strokeStyle = 'rgba(255,190,105,.92)';
+    ctx.lineWidth = 9;
+    for (let k = -h; k < w + h; k += step) {
+      ctx.beginPath(); ctx.moveTo(x + k, y + h); ctx.lineTo(x + k + h, y); ctx.stroke();
+    }
+    ctx.restore();
+  }
+  hazardStrip(54, 54, 180, 18);
+  hazardStrip(790, 54, 180, 18);
+  hazardStrip(54, 952, 180, 18);
+  hazardStrip(790, 952, 180, 18);
+  hazardStrip(54, 220, 18, 132, 22);
+  hazardStrip(952, 672, 18, 132, 22);
+
+  // Grated drains and access panels add the industrial surface language seen in real arenas.
+  function drawGrate(cx, cy, w, h, spacing = 12) {
+    ctx.save();
+    ctx.fillStyle = 'rgba(31,50,54,.45)';
+    ctx.fillRect(cx - w / 2, cy - h / 2, w, h);
+    ctx.beginPath(); ctx.rect(cx - w / 2, cy - h / 2, w, h); ctx.clip();
+    ctx.strokeStyle = 'rgba(204,220,205,.32)';
+    ctx.lineWidth = 2;
+    for (let x = cx - w / 2; x <= cx + w / 2; x += spacing) {
+      ctx.beginPath(); ctx.moveTo(x, cy - h / 2); ctx.lineTo(x, cy + h / 2); ctx.stroke();
+    }
+    for (let y = cy - h / 2; y <= cy + h / 2; y += spacing) {
+      ctx.beginPath(); ctx.moveTo(cx - w / 2, y); ctx.lineTo(cx + w / 2, y); ctx.stroke();
+    }
+    ctx.restore();
+    ctx.strokeStyle = 'rgba(230,239,220,.50)';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(cx - w / 2, cy - h / 2, w, h);
+    ctx.fillStyle = 'rgba(27,44,48,.45)';
+    for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
+      ctx.beginPath(); ctx.arc(cx + sx * (w / 2 - 6), cy + sy * (h / 2 - 6), 2.5, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+  drawGrate(150, 372, 104, 190, 13);
+  drawGrate(874, 650, 104, 190, 13);
+  drawGrate(300, 830, 180, 54, 13);
+  drawGrate(724, 194, 180, 54, 13);
+  drawGrate(512, 720, 84, 126, 12);
+
+  function drain(cx, cy, radius) {
+    ctx.save();
+    ctx.fillStyle = 'rgba(28,46,51,.40)';
+    ctx.beginPath(); ctx.arc(cx, cy, radius, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = 'rgba(226,237,220,.43)';
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(cx, cy, radius - 3, 0, Math.PI * 2); ctx.stroke();
+    ctx.lineWidth = 2;
+    for (let a = 0; a < Math.PI * 2; a += Math.PI / 4) {
+      ctx.beginPath();
+      ctx.moveTo(cx + Math.cos(a) * 5, cy + Math.sin(a) * 5);
+      ctx.lineTo(cx + Math.cos(a) * (radius - 6), cy + Math.sin(a) * (radius - 6));
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+  drain(110, 740, 23);
+  drain(914, 280, 23);
+  drain(856, 862, 16);
+  drain(168, 168, 16);
+
+  // Large directional graphics make the floor readable from a distance.
+  function floorArrow(cx, cy, angle, scale, color) {
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(angle);
+    ctx.scale(scale, scale);
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(0, -42); ctx.lineTo(27, -8); ctx.lineTo(10, -8);
+    ctx.lineTo(10, 40); ctx.lineTo(-10, 40); ctx.lineTo(-10, -8);
+    ctx.lineTo(-27, -8); ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = 'rgba(24,43,47,.34)';
+    ctx.fillRect(-3, -1, 6, 30);
+    ctx.restore();
+  }
+  floorArrow(168, 432, 0, 1.05, 'rgba(239,244,223,.54)');
+  floorArrow(856, 592, Math.PI, 1.05, 'rgba(239,244,223,.54)');
+  floorArrow(300, 300, -.48, .62, 'rgba(32,112,125,.38)');
+  floorArrow(724, 724, 2.66, .62, 'rgba(174,72,54,.34)');
+
+  // Team-neutral centre circle and oversized Breakwater field identity.
+  ctx.save();
+  ctx.globalAlpha = .42;
+  ctx.strokeStyle = '#f1f0df';
+  ctx.lineWidth = 7;
+  ctx.setLineDash([22, 16]);
+  ctx.beginPath(); ctx.arc(512, 512, 186, 0, Math.PI * 2); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.arc(512, 512, 164, 0, Math.PI * 2); ctx.stroke();
+  ctx.globalAlpha = .25;
+  ctx.fillStyle = '#253d42';
+  ctx.beginPath(); ctx.arc(512, 512, 142, 0, Math.PI * 2); ctx.fill();
+  ctx.globalAlpha = .72;
+  ctx.fillStyle = '#f1f2df';
+  ctx.textAlign = 'center';
+  ctx.font = '900 56px sans-serif';
+  ctx.fillText('BREAKWATER', 512, 472);
+  ctx.font = '800 18px sans-serif';
+  ctx.fillText('TINT3D  /  FIELD SERIES 001', 512, 506);
+  ctx.font = '900 34px sans-serif';
+  ctx.fillText('414', 512, 550);
+  ctx.globalAlpha = .72;
+  ctx.fillStyle = '#ffc078';
+  ctx.fillRect(356, 570, 312, 7);
+  ctx.restore();
+
+  // Smaller port stencils, deliberately faded into the concrete.
+  ctx.save();
+  ctx.fillStyle = 'rgba(33,57,61,.48)';
+  ctx.textAlign = 'left';
+  ctx.font = '900 20px sans-serif';
+  ctx.fillText('NORTH QUAY  /  BAY 04', 92, 286);
+  ctx.fillText('SOUTH QUAY  /  BAY 09', 650, 776);
+  ctx.font = '800 12px sans-serif';
+  ctx.fillText('PORT AUTHORITY  •  KEEP CLEAR', 92, 307);
+  ctx.fillText('SERVICE ACCESS  //  TINT3D', 650, 797);
+  ctx.textAlign = 'center';
+  ctx.font = '900 16px sans-serif';
+  ctx.fillText('KEEP MOVING  /  KEEP PAINTING', 512, 126);
+  ctx.save();
+  ctx.translate(126, 512);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText('BREAKWATER FREIGHT TERMINAL', 0, 0);
+  ctx.restore();
+  ctx.restore();
+
+  // Light tyre scuffs and scraped paint near the vehicle/service lanes.
+  ctx.save();
+  ctx.lineCap = 'round';
+  for (let i = 0; i < 18; i++) {
+    const y = 170 + i * 39;
+    ctx.strokeStyle = 'rgba(39,58,60,.10)';
+    ctx.lineWidth = 2 + (i % 3);
+    ctx.beginPath(); ctx.moveTo(238 + (i % 2) * 10, y); ctx.lineTo(326 + (i % 3) * 8, y + 7); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(690 - (i % 2) * 10, y + 11); ctx.lineTo(780 - (i % 3) * 8, y); ctx.stroke();
+  }
+  ctx.restore();
 }
-paintCtx.strokeStyle = 'rgba(211,230,229,.10)';
-paintCtx.lineWidth = 3;
-for (let i = 1; i < 8; i++) {
-  const p = i * 128;
-  paintCtx.beginPath(); paintCtx.moveTo(p, 0); paintCtx.lineTo(p, 1024); paintCtx.stroke();
-  paintCtx.beginPath(); paintCtx.moveTo(0, p); paintCtx.lineTo(1024, p); paintCtx.stroke();
-}
-paintCtx.strokeStyle = 'rgba(151,183,188,.24)';
-paintCtx.lineWidth = 5;
-paintCtx.strokeRect(22, 22, 980, 980);
-paintCtx.save();
-paintCtx.globalAlpha = 0.28;
-paintCtx.strokeStyle = '#d8e5d8';
-paintCtx.lineWidth = 5;
-paintCtx.setLineDash([18, 16]);
-paintCtx.beginPath();
-paintCtx.arc(512, 512, 185, 0, Math.PI * 2);
-paintCtx.stroke();
-paintCtx.setLineDash([]);
-paintCtx.fillStyle = '#dce7d9';
-paintCtx.font = '900 58px sans-serif';
-paintCtx.textAlign = 'center';
-paintCtx.fillText('BREAKWATER', 512, 470);
-paintCtx.font = '800 19px sans-serif';
-paintCtx.fillText('TINT3D FIELD SERIES  /  001', 512, 508);
-paintCtx.font = '900 34px sans-serif';
-paintCtx.fillText('T3', 512, 558);
-paintCtx.globalAlpha = 0.21;
-paintCtx.fillStyle = '#ffba74';
-paintCtx.fillRect(105, 130, 814, 11);
-paintCtx.fillRect(105, 883, 814, 11);
-paintCtx.restore();
+drawArenaBaseArtwork(paintCtx);
 const paintTexture = new THREE.CanvasTexture(paintCanvas);
 paintTexture.colorSpace = THREE.SRGBColorSpace;
 paintTexture.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
@@ -184,7 +385,7 @@ paintTexture.generateMipmaps = true;
 paintTexture.minFilter = THREE.LinearMipmapLinearFilter;
 const floor = mesh(
   new THREE.PlaneGeometry(ARENA, ARENA),
-  new THREE.MeshStandardMaterial({ map: paintTexture, roughness: 0.76, metalness: 0.08 }),
+  new THREE.MeshStandardMaterial({ map: paintTexture, roughness: 0.93, metalness: 0.015 }),
   scene, 0, -0.045, 0
 );
 floor.layers.enable(1);
@@ -441,19 +642,7 @@ function moveOnGround(actor, dx, dz, radius = 0.46) {
 }
 
 
-// Small painted details on the arena floor.
-paintCtx.fillStyle = 'rgba(221,236,225,.18)';
-paintCtx.fillRect(492, 80, 40, 864);
-paintCtx.fillRect(80, 492, 864, 40);
-paintCtx.save();
-paintCtx.translate(512, 160);
-paintCtx.rotate(-Math.PI / 2);
-paintCtx.fillStyle = 'rgba(235,245,230,.30)';
-paintCtx.font = '900 24px sans-serif';
-paintCtx.textAlign = 'center';
-paintCtx.fillText('KEEP MOVING  /  KEEP PAINTING', 0, 0);
-paintCtx.restore();
-paintTexture.needsUpdate = true;
+
 
 const owners = new Int8Array(GRID * GRID);
 const gridStep = ARENA / GRID;
@@ -1349,58 +1538,7 @@ function resetPaint() {
     wall.ctx.clearRect(0, 0, wall.canvas.width, wall.canvas.height);
     wall.texture.needsUpdate = true;
   }
-  paintCtx.fillStyle = '#35464d';
-  paintCtx.fillRect(0, 0, 1024, 1024);
-  const concreteWash = paintCtx.createLinearGradient(0, 0, 1024, 1024);
-  concreteWash.addColorStop(0, 'rgba(215,230,218,.12)');
-  concreteWash.addColorStop(.52, 'rgba(104,139,139,.025)');
-  concreteWash.addColorStop(1, 'rgba(8,24,31,.26)');
-  paintCtx.fillStyle = concreteWash;
-  paintCtx.fillRect(0, 0, 1024, 1024);
-  for (let i = 0; i < 1100; i++) {
-    const x = Math.random() * 1024;
-    const y = Math.random() * 1024;
-    const radius = Math.random() * 1.8 + 0.35;
-    paintCtx.fillStyle = Math.random() > .5 ? 'rgba(190,214,218,.045)' : 'rgba(0,0,0,.08)';
-    paintCtx.beginPath();
-    paintCtx.arc(x, y, radius, 0, Math.PI * 2);
-    paintCtx.fill();
-  }
-  paintCtx.strokeStyle = 'rgba(211,230,229,.10)';
-  paintCtx.lineWidth = 3;
-  for (let i = 1; i < 8; i++) {
-    const p = i * 128;
-    paintCtx.beginPath(); paintCtx.moveTo(p, 0); paintCtx.lineTo(p, 1024); paintCtx.stroke();
-    paintCtx.beginPath(); paintCtx.moveTo(0, p); paintCtx.lineTo(1024, p); paintCtx.stroke();
-  }
-  paintCtx.strokeStyle = 'rgba(151,183,188,.24)';
-  paintCtx.lineWidth = 5;
-  paintCtx.strokeRect(22, 22, 980, 980);
-  paintCtx.save();
-  paintCtx.globalAlpha = .28;
-  paintCtx.strokeStyle = '#d8e5d8';
-  paintCtx.lineWidth = 5;
-  paintCtx.setLineDash([18, 16]);
-  paintCtx.beginPath();
-  paintCtx.arc(512, 512, 185, 0, Math.PI * 2);
-  paintCtx.stroke();
-  paintCtx.setLineDash([]);
-  paintCtx.fillStyle = '#dce7d9';
-  paintCtx.font = '900 58px sans-serif';
-  paintCtx.textAlign = 'center';
-  paintCtx.fillText('BREAKWATER', 512, 470);
-  paintCtx.font = '800 19px sans-serif';
-  paintCtx.fillText('TINT3D FIELD SERIES  /  001', 512, 508);
-  paintCtx.font = '900 34px sans-serif';
-  paintCtx.fillText('T3', 512, 558);
-  paintCtx.globalAlpha = .21;
-  paintCtx.fillStyle = '#ffba74';
-  paintCtx.fillRect(105, 130, 814, 11);
-  paintCtx.fillRect(105, 883, 814, 11);
-  paintCtx.restore();
-  paintCtx.fillStyle = 'rgba(221,236,225,.18)';
-  paintCtx.fillRect(492, 80, 40, 864);
-  paintCtx.fillRect(80, 492, 864, 40);
+  drawArenaBaseArtwork(paintCtx);
   paintTexture.needsUpdate = true;
   seedArea(BLUE, 0, 15.5);
   seedArea(ORANGE, 0, -15.5);
