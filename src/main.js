@@ -1561,11 +1561,11 @@ const splashPuddleGeometry = new THREE.CircleGeometry(0.44, 18);
 // of independent draw calls.
 function makeWetPoolGeometry() {
   const sides = 24;
-  const positions = [0, 0.060, 0];
+  const positions = [0, 0.016, 0];
   const uvs = [0.5, 0.5];
   const indices = [];
   const radii = [0.38, 0.73, 1.0];
-  const heights = [0.047, 0.028, 0.010];
+  const heights = [0.013, 0.007, 0.0015];
   for (let ring = 0; ring < radii.length; ring++) {
     for (let i = 0; i < sides; i++) {
       const a = (i / sides) * Math.PI * 2;
@@ -1625,7 +1625,8 @@ for (const team of [1, 2]) {
 function addPersistentWetInk(position, team, radius, seed) {
   const index = wetPoolCounts[team];
   if (index >= 128) return;
-  wetPoolTransform.position.set(position.x, groundHeight(position.x, position.z) + 0.012, position.z);
+  const floorY = groundHeight(position.x, position.z);
+  wetPoolTransform.position.set(position.x, floorY > 0.5 ? floorY + 0.001 : -0.043, position.z);
   const sx = radius * (0.82 + 0.22 * Math.sin(seed * 8));
   const sz = radius * (0.68 + 0.23 * Math.cos(seed * 5));
   wetPoolTransform.scale.set(sx, 1, sz);
@@ -1637,8 +1638,11 @@ function addPersistentWetInk(position, team, radius, seed) {
   wetPools[team].instanceMatrix.needsUpdate = true;
   wetPools[team].visible = true;
 }
+const projectiles = [];
+const particles = [];
 function spawnSplash(position, team) {
-  const ground = groundHeight(position.x, position.z) + 0.055;
+  const level = groundHeight(position.x, position.z);
+  const ground = level > 0.5 ? level + 0.012 : -0.035;
   const puddleMaterial = splashMaterials[team].clone();
   const puddle = new THREE.Mesh(splashPuddleGeometry, puddleMaterial);
   puddle.rotation.x = -Math.PI / 2;
@@ -2233,6 +2237,7 @@ function updatePlayer(delta) {
     player.verticalVelocity -= 19 * delta;
     player.position.y += player.verticalVelocity * delta;
     if (player.position.y <= baseY) {
+      if (player.verticalVelocity < -2.8) player.landImpact = clamp(Math.abs(player.verticalVelocity) * 0.075, 0.18, 1);
       player.position.y = baseY;
       player.verticalVelocity = 0;
       player.grounded = true;
