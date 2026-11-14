@@ -570,6 +570,7 @@ function spawnProjectile(origin, target, team, owner) {
 }
 function fireActor(actor, target) {
   if (actor.fireCooldown > 0 || actor.ink < 4 || !actor.group.visible) return;
+  if (actor.player) actor.group.rotation.y = yaw;
   actor.fireCooldown = actor.player ? 0.115 : 0.95 + Math.random() * 0.6;
   actor.ink = Math.max(0, actor.ink - (actor.player ? 4.2 : 3.2));
   const destination = target.clone();
@@ -675,6 +676,12 @@ function ownerAt(x, z) {
   return index < 0 ? 0 : owners[index];
 }
 function updatePlayer(delta) {
+  if (player.respawn > 0) {
+    player.respawn = Math.max(0, player.respawn - delta);
+    if (player.respawn === 0) respawnActor(player);
+    updateInk();
+    return;
+  }
   const input = movementInput();
   const forward = new THREE.Vector3(Math.sin(yaw), 0, -Math.cos(yaw));
   const right = new THREE.Vector3(Math.cos(yaw), 0, Math.sin(yaw));
@@ -974,7 +981,10 @@ document.addEventListener('keydown', (event) => {
 });
 document.addEventListener('keyup', (event) => keys.delete(event.code));
 renderer.domElement.addEventListener('pointerdown', (event) => {
-  if (event.button === 0 && gameStarted && !paused && !isTouch) fireActor(player, getAimPoint());
+  if (event.button === 0 && gameStarted && !paused && !isTouch) {
+    fireHeld = true;
+    fireActor(player, getAimPoint());
+  }
   if (isTouch && event.clientX > innerWidth * 0.38 && !event.target.closest('button')) {
     activePointers.set(event.pointerId, { type: 'look', x: event.clientX, y: event.clientY });
   }
@@ -999,6 +1009,8 @@ function releasePointer(event) {
 }
 renderer.domElement.addEventListener('pointerup', releasePointer);
 renderer.domElement.addEventListener('pointercancel', releasePointer);
+window.addEventListener('pointerup', () => { if (!isTouch) fireHeld = false; });
+window.addEventListener('pointercancel', () => { if (!isTouch) fireHeld = false; });
 
 const joystickEl = $('joystick');
 const knobEl = $('joystick-knob');
@@ -1058,7 +1070,7 @@ function animate() {
     if (fireHeld) fireActor(player, getAimPoint());
     updateProjectiles(delta);
     if (timeLeft <= 0) finishMatch();
-  } else {
+  } else if (!paused) {
     updateProjectiles(delta);
   }
   updateParticles(delta);
