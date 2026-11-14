@@ -141,7 +141,19 @@ function cylinder(x, y, z, radius, height, color, rotationZ = 0, solid = false) 
   const item = mesh(shared.cylinder, mat('cyl-' + color, color, 0.63, 0.36), scene, x, y, z);
   item.scale.set(radius, height, radius);
   item.rotation.z = rotationZ;
-  if (solid) solidBounds.push({ shape: 'circle', x, z, radius, minY: y - height / 2, maxY: y + height / 2 });
+  if (solid) {
+    if (Math.abs(Math.sin(rotationZ)) > 0.5) {
+      const halfX = Math.abs(Math.sin(rotationZ)) * height / 2 + Math.abs(Math.cos(rotationZ)) * radius;
+      const halfZ = Math.abs(Math.cos(rotationZ)) * height / 2 + Math.abs(Math.sin(rotationZ)) * radius;
+      solidBounds.push({
+        minX: x - halfX, maxX: x + halfX,
+        minY: y - radius, maxY: y + radius,
+        minZ: z - halfZ, maxZ: z + halfZ
+      });
+    } else {
+      solidBounds.push({ shape: 'circle', x, z, radius, minY: y - height / 2, maxY: y + height / 2 });
+    }
+  }
   return item;
 }
 
@@ -740,8 +752,8 @@ for (const z of [-15.5, 15.5]) {
 }
 for (let i = 0; i < 5; i++) {
   const z = -12 + i * 6;
-  cylinder(-18.1, 2.9, z, 0.16, 5.8, 0x54727c, Math.PI / 2);
-  cylinder(18.1, 2.9, z, 0.16, 5.8, 0x54727c, Math.PI / 2);
+  cylinder(-18.1, 2.9, z, 0.16, 5.8, 0x54727c, Math.PI / 2, true);
+  cylinder(18.1, 2.9, z, 0.16, 5.8, 0x54727c, Math.PI / 2, true);
 }
 
 // A back-wall sign and overhead gantry give the level a recognisable skyline.
@@ -1333,7 +1345,7 @@ function paintSurfaceHeight(x, z) {
 function isBlockedAt(x, z, feetY, radius = 0.46) {
   for (const box of solidBounds) {
     if (feetY >= box.maxY - 0.13) continue;
-    if (feetY + 1.75 <= box.minY) continue;
+    if (feetY + 2.25 <= box.minY) continue;
     let closestX;
     let closestZ;
     let reach = radius;
@@ -1395,8 +1407,17 @@ function moveOnGround(actor, dx, dz, radius = 0.46) {
   }
   const surfaceY = actorSurfaceHeight(actor, actor.position.x, actor.position.z);
   // Keep air momentum, but settle onto the highest reachable solid surface.
-  if (!actor.player || actor.grounded) actor.position.y = surfaceY;
-  else actor.position.y = Math.max(actor.position.y, surfaceY);
+  if (!actor.player) {
+    actor.position.y = surfaceY;
+  } else if (actor.grounded && surfaceY < actor.position.y - 0.12) {
+    // Walking off a raised cover edge starts a real fall instead of snapping down.
+    actor.grounded = false;
+    actor.verticalVelocity = Math.min(0, actor.verticalVelocity || 0);
+  } else if (actor.grounded) {
+    actor.position.y = surfaceY;
+  } else {
+    actor.position.y = Math.max(actor.position.y, surfaceY);
+  }
 }
 
 
