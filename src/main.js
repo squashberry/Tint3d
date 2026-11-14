@@ -211,6 +211,7 @@ function makeContainerTexture(baseColor, serial) {
   return texture;
 }
 let containerSerial = 1;
+const paintableWalls = [];
 function addContainer(x, z, sx, sz, color, height = 2.4, raised = 0) {
   const y = raised + height / 2;
   const shell = block(x, y, z, sx, height, sz, color, {
@@ -221,6 +222,29 @@ function addContainer(x, z, sx, sz, color, height = 2.4, raised = 0) {
     roughness: 0.61,
     metalness: 0.30
   });
+  const wallCanvas = document.createElement('canvas');
+  wallCanvas.width = 512;
+  wallCanvas.height = 256;
+  const wallTexture = new THREE.CanvasTexture(wallCanvas);
+  wallTexture.colorSpace = THREE.SRGBColorSpace;
+  wallTexture.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
+  const wallMaterial = new THREE.MeshBasicMaterial({
+    map: wallTexture, transparent: true, depthWrite: false,
+    side: THREE.DoubleSide, toneMapped: false
+  });
+  for (const side of [-1, 1]) {
+    const face = new THREE.Mesh(new THREE.PlaneGeometry(sx, height), wallMaterial);
+    face.position.set(x, y, z + side * (sz / 2 + 0.035));
+    if (side < 0) face.rotation.y = Math.PI;
+    face.layers.enable(1);
+    scene.add(face);
+    paintableWalls.push({
+      minX: x - sx / 2, maxX: x + sx / 2,
+      minY: raised, maxY: raised + height,
+      faceZ: face.position.z, canvas: wallCanvas,
+      ctx: wallCanvas.getContext('2d'), texture: wallTexture
+    });
+  }
   for (let i = -Math.floor(sx / 1.25); i <= Math.floor(sx / 1.25); i++) {
     block(x + i * 0.62, y, z - sz / 2 - 0.018, 0.045, height * 0.86, 0.035, 0x526b76);
   }
@@ -425,8 +449,69 @@ function updateScore() {
   }
   return { blue: b, orange: o };
 }
+function paintWallAt(wall, position, team, radius) {
+  const px = clamp((position.x - wall.minX) / (wall.maxX - wall.minX), 0, 1) * wall.canvas.width;
+  const py = clamp((wall.maxY - position.y) / (wall.maxY - wall.minY), 0, 1) * wall.canvas.height;
+  const r = Math.max(12, radius * 48);
+  const seed = Math.random() * 9;
+  const sides = 12;
+  wall.ctx.save();
+  wall.ctx.shadowColor = TEAM[team].ink;
+  wall.ctx.shadowBlur = 13;
+  const gradient = wall.ctx.createRadialGradient(px - r * .24, py - r * .25, r * .05, px, py, r * 1.15);
+  gradient.addColorStop(0, TEAM[team].light);
+  gradient.addColorStop(.25, TEAM[team].ink);
+  gradient.addColorStop(1, TEAM[team].deep);
+  wall.ctx.fillStyle = gradient;
+  wall.ctx.beginPath();
+  for (let i = 0; i < sides; i++) {
+    const a = i / sides * Math.PI * 2;
+    const wobble = .72 + .28 * Math.sin(seed + i * 2.3) ** 2;
+    const xx = px + Math.cos(a) * r * wobble;
+    const yy = py + Math.sin(a) * r * (0.78 + .22 * Math.cos(seed + i));
+    if (i === 0) wall.ctx.moveTo(xx, yy); else wall.ctx.lineTo(xx, yy);
+  }
+  wall.ctx.closePath();
+  wall.ctx.fill();
+  wall.ctx.shadowBlur = 0;
+  wall.ctx.fillStyle = TEAM[team].ink;
+  for (let i = 0; i < 4; i++) {
+    const a = seed + i * 1.6;
+    wall.ctx.beginPath();
+    wall.ctx.arc(px + Math.cos(a) * r * (0.65 + i * .08), py + Math.sin(a) * r * .68, r * (.08 + (i % 2) * .04), 0, Math.PI * 2);
+    wall.ctx.fill();
+  }
+  wall.ctx.restore();
+  wall.texture.needsUpdate = true;
+}
+function spawnWallSplash(position, team) {
+  const material = projectileMaterials[team];
+  for (let i = 0; i < 4; i++) {
+    const dot = mesh(shared.smallSphere, material, scene, position.x, position.y, position.z);
+    dot.layers.disable(1);
+    const angle = Math.random() * Math.PI * 2;
+    const size = .07 + Math.random() * .08;
+    dot.scale.set(size, size, size);
+    particles.push({
+      mesh: dot, life: .28 + Math.random() * .2, maxLife: .48,
+      velocity: new THREE.Vector3(Math.cos(angle) * (1 + Math.random()), 1 + Math.random() * 1.6, Math.sin(angle) * .22)
+    });
+  }
+}
 function paintAt(position, team, radius = 1.75, quiet = false) {
   if (Math.abs(position.x) > HALF || Math.abs(position.z) > HALF) return;
+  if (position.y > 0.42) {
+    const wall = paintableWalls.find((item) =>
+      position.x >= item.minX && position.x <= item.maxX &&
+      position.y >= item.minY && position.y <= item.maxY &&
+      Math.abs(position.z - item.faceZ) < 0.48
+    );
+    if (wall) {
+      paintWallAt(wall, position, team, radius);
+      if (!quiet) spawnWallSplash(position, team);
+      return;
+    }
+  }
   drawSplat(position, team, radius, Math.random());
   const cx = Math.floor((position.x + HALF) / gridStep);
   const cz = Math.floor((position.z + HALF) / gridStep);
@@ -845,6 +930,8 @@ function nearestEnemy(actor) {
 function removeProjectile(index) {
   const projectile = projectiles[index];
   scene.remove(projectile.mesh);
+  const glow = projectile.mesh.children?.[1];
+  if (glow?.material && glow.material !== projectileMaterials[projectile.team]) glow.material.dispose();
   projectiles.splice(index, 1);
 }
 function respawnActor(actor) {
@@ -873,6 +960,7 @@ function damageActor(actor, amount, source) {
   if (actor.health <= 0) {
     actor.respawn = actor.player ? 2.3 : 3.4;
     actor.group.visible = false;
+    if (actor.shadow) actor.shadow.visible = false;
     if (source && source.player) {
       source.eliminations++;
       totalEliminations++;
@@ -912,7 +1000,12 @@ function updateProjectiles(delta) {
     );
     if (hitActor || hitWorld || pos.y <= floorY + 0.12 || Math.abs(pos.x) > HALF || Math.abs(pos.z) > HALF || p.life <= 0) {
       if (!hitActor && Math.abs(pos.x) < HALF && Math.abs(pos.z) < HALF) {
-        paintAt(new THREE.Vector3(pos.x, 0, pos.z), p.team, hitWorld ? 1.85 : (p.team === BLUE ? 1.55 : 1.45));
+        const wallFace = hitWorld ? paintableWalls.find((wall) =>
+          pos.x >= wall.minX && pos.x <= wall.maxX &&
+          pos.y >= wall.minY && pos.y <= wall.maxY &&
+          Math.abs(pos.z - wall.faceZ) < 0.55
+        ) : null;
+        paintAt(new THREE.Vector3(pos.x, wallFace ? pos.y : 0, pos.z), p.team, hitWorld ? 1.85 : (p.team === BLUE ? 1.55 : 1.45));
       }
       removeProjectile(i);
     }
@@ -1140,6 +1233,10 @@ function finishMatch() {
 }
 function resetPaint() {
   owners.fill(0);
+  for (const wall of paintableWalls) {
+    wall.ctx.clearRect(0, 0, wall.canvas.width, wall.canvas.height);
+    wall.texture.needsUpdate = true;
+  }
   paintCtx.fillStyle = '#263542';
   paintCtx.fillRect(0, 0, 1024, 1024);
   paintCtx.strokeStyle = 'rgba(211,230,229,.10)';
