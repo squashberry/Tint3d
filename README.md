@@ -6,13 +6,15 @@
 
 ## Current build
 
-- Lightweight 3D arena rendered with Three.js
-- Third-person movement and mouse camera
-- Pulse Sprayer paint projectiles
-- Paintable floor tiles and live territory scoring
-- A rival training bot that paints back
-- Jumping and Flow Slide speed burst
-- Keyboard/mouse controls and basic mobile touch controls
+- Third-person 3D arena rendered with Three.js
+- Camera-relative keyboard and mobile joystick movement
+- Continuous team-colour foot trails and paintable floor, deck and ramps
+- Underfoot team-ink detection for Flowline special movement
+- Pulse Sprayer with a back-mounted holster while sprinting
+- Sprinting, low-profile sliding, buffered variable-height jumping and fall/landing response
+- Local 5v5 crew with AI teammates and rivals
+- Cinematic 3D team lineup and pre-match 3–2–1 countdown
+- Keyboard/mouse and mobile touch controls
 - Three-minute match loop and end-of-match result screen
 
 ## Run locally
@@ -33,10 +35,12 @@ Open the local URL printed by Vite.
 | Move | W A S D | Left joystick |
 | Aim | Mouse | Drag on the right side |
 | Spray | Left mouse button | Paint button |
-| Jump | Space | Up button |
-| Flow Slide | Shift | Planned touch gesture |
+| Sprint / holster weapon | Hold Shift | Hold RUN |
+| Slide | Press C while sprinting | Tap SLIDE while sprinting |
+| Jump | Space (hold for a higher jump) | Hold jump button |
+| Flowline special | Q while standing on your crew's ink | Flowline button while on your crew's ink |
 
-Click **Enter the Yard** to begin. On desktop, click the game to capture the mouse; press **Esc** to pause and release it.
+Start the match from the title screen. A 3D squad introduction and 3–2–1 countdown play before control is handed over. On desktop, press **Esc** to pause and release the mouse.
 
 ## Project direction
 
