@@ -38,7 +38,7 @@ document.addEventListener('dragstart', (event) => {
 });
 if (isTouch) {
   document.body.classList.add('touch-device');
-  ui.hint.textContent = 'LEFT STICK MOVE  ·  HOLD RUN  ·  SLIDE  ·  TAP SPRAY';
+  ui.hint.textContent = 'LEFT STICK MOVE  ·  TAP RUN TO LOCK  ·  SLIDE  ·  TAP SPRAY';
 }
 
 const scene = new THREE.Scene();
@@ -46,22 +46,36 @@ scene.background = new THREE.Color(0x83c6ca);
 scene.fog = new THREE.Fog(0x83c6ca, 40, 94);
 const camera = new THREE.PerspectiveCamera(66, innerWidth / innerHeight, 0.1, 120);
 const renderer = new THREE.WebGLRenderer({
-  antialias: false,
+  antialias: true,
   alpha: false,
   powerPreference: 'high-performance',
   stencil: false,
   depth: true
 });
-renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 1.25));
+renderer.setPixelRatio(Math.min(devicePixelRatio || 1, isTouch ? 1.15 : 1.4));
 renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.27;
+renderer.toneMappingExposure = 1.18;
 root.appendChild(renderer.domElement);
 
 scene.add(new THREE.HemisphereLight(0xe6fcff, 0x58616a, 1.72));
 const sun = new THREE.DirectionalLight(0xfff2d9, 2.85);
 sun.position.set(-13, 25, 11);
+sun.castShadow = true;
+sun.shadow.mapSize.set(isTouch ? 768 : 1024, isTouch ? 768 : 1024);
+sun.shadow.camera.left = -24;
+sun.shadow.camera.right = 24;
+sun.shadow.camera.top = 24;
+sun.shadow.camera.bottom = -24;
+sun.shadow.camera.near = 0.5;
+sun.shadow.camera.far = 70;
+sun.shadow.bias = -0.00012;
+sun.shadow.normalBias = 0.035;
+sun.shadow.radius = 2;
+sun.shadow.camera.updateProjectionMatrix();
 scene.add(sun);
 const fillLight = new THREE.PointLight(0x42e7ef, 29, 42, 2);
 fillLight.position.set(-12, 8, -5);
@@ -75,13 +89,13 @@ scene.add(rimLight);
 
 const shared = {
   box: new THREE.BoxGeometry(1, 1, 1),
-  sphere: new THREE.SphereGeometry(1, 12, 10),
-  smallSphere: new THREE.SphereGeometry(1, 8, 7),
-  cylinder: new THREE.CylinderGeometry(1, 1, 1, 10),
-  ring: new THREE.TorusGeometry(0.25, 0.07, 6, 12),
-  torso: new THREE.CapsuleGeometry(0.34, 0.62, 3, 8),
-  head: new THREE.SphereGeometry(0.30, 12, 10),
-  limb: new THREE.CapsuleGeometry(0.115, 0.40, 2, 7),
+  sphere: new THREE.SphereGeometry(1, 16, 12),
+  smallSphere: new THREE.SphereGeometry(1, 10, 8),
+  cylinder: new THREE.CylinderGeometry(1, 1, 1, 16),
+  ring: new THREE.TorusGeometry(0.25, 0.07, 8, 20),
+  torso: new THREE.CapsuleGeometry(0.34, 0.62, 4, 12),
+  head: new THREE.SphereGeometry(0.30, 16, 12),
+  limb: new THREE.CapsuleGeometry(0.115, 0.40, 3, 9),
   shoe: new THREE.BoxGeometry(0.34, 0.18, 0.49)
 };
 const mats = {};
@@ -118,6 +132,8 @@ const solidBounds = [];
 function block(x, y, z, sx, sy, sz, color, options = {}) {
   const item = mesh(shared.box, mat('world-' + color, color, options.roughness ?? 0.74, options.metalness ?? 0.12, options.emissive ?? 0), scene, x, y, z);
   item.scale.set(sx, sy, sz);
+  item.castShadow = !!options.solid;
+  item.receiveShadow = !!options.solid;
   if (options.rotation) item.rotation.set(options.rotation.x || 0, options.rotation.y || 0, options.rotation.z || 0);
   if (options.solid) {
     const rotation = new THREE.Quaternion().setFromEuler(new THREE.Euler(
@@ -141,6 +157,8 @@ function cylinder(x, y, z, radius, height, color, rotationZ = 0, solid = false) 
   const item = mesh(shared.cylinder, mat('cyl-' + color, color, 0.63, 0.36), scene, x, y, z);
   item.scale.set(radius, height, radius);
   item.rotation.z = rotationZ;
+  item.castShadow = solid;
+  item.receiveShadow = solid;
   if (solid) {
     if (Math.abs(Math.sin(rotationZ)) > 0.5) {
       const halfX = Math.abs(Math.sin(rotationZ)) * height / 2 + Math.abs(Math.cos(rotationZ)) * radius;
@@ -195,7 +213,7 @@ const paintRoughnessTexture = new THREE.CanvasTexture(paintRoughnessCanvas);
 const paintHeightTexture = new THREE.CanvasTexture(paintHeightCanvas);
 const paintClearcoatTexture = new THREE.CanvasTexture(paintClearcoatCanvas);
 for (const texture of [paintRoughnessTexture, paintHeightTexture, paintClearcoatTexture]) {
-  texture.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
+  texture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
   texture.generateMipmaps = true;
   texture.minFilter = THREE.LinearMipmapLinearFilter;
 }
@@ -451,12 +469,12 @@ function drawArenaBaseArtwork(ctx) {
 drawArenaBaseArtwork(paintCtx);
 const paintTexture = new THREE.CanvasTexture(paintCanvas);
 paintTexture.colorSpace = THREE.SRGBColorSpace;
-paintTexture.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
+paintTexture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
 paintTexture.generateMipmaps = true;
 paintTexture.minFilter = THREE.LinearMipmapLinearFilter;
 const raisedPaintTexture = new THREE.CanvasTexture(raisedPaintCanvas);
 raisedPaintTexture.colorSpace = THREE.SRGBColorSpace;
-raisedPaintTexture.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
+raisedPaintTexture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
 raisedPaintTexture.generateMipmaps = true;
 raisedPaintTexture.minFilter = THREE.LinearMipmapLinearFilter;
 
@@ -477,6 +495,7 @@ const floor = mesh(
   scene, 0, -0.045, 0
 );
 floor.layers.enable(1);
+floor.receiveShadow = true;
 floor.rotation.x = -Math.PI / 2;
 const underfloor = mesh(shared.box, mat('underfloor', 0x17242f, 0.94, 0.04), scene, 0, -0.42, 0);
 underfloor.scale.set(ARENA + 1.2, 0.7, ARENA + 1.2);
@@ -562,7 +581,7 @@ function makeContainerTexture(baseColor, serial) {
   }
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
-  texture.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
+  texture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
   return texture;
 }
 let containerSerial = 1;
@@ -582,7 +601,7 @@ function addContainer(x, z, sx, sz, color, height = 2.4, raised = 0) {
   wallCanvas.height = 256;
   const wallTexture = new THREE.CanvasTexture(wallCanvas);
   wallTexture.colorSpace = THREE.SRGBColorSpace;
-  wallTexture.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
+  wallTexture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
   const wallMaterial = new THREE.MeshBasicMaterial({
     map: wallTexture, transparent: true, depthWrite: false,
     side: THREE.DoubleSide, toneMapped: false
@@ -880,7 +899,7 @@ function makeDeckSurfaceTexture() {
   }
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
-  texture.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
+  texture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
   return texture;
 }
 
@@ -916,7 +935,7 @@ function makeAwningTexture(base, stripe, label) {
   }
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
-  texture.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
+  texture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
   return texture;
 }
 
@@ -2229,7 +2248,11 @@ function createActor(team, variation, x, z, playerControlled = false) {
     slideSpeed: 0, slideDirection: new THREE.Vector3(),
     jumpBuffer: 0, coyoteTimer: 0.12, jumpHoldTimer: 0, effectTimer: 0
   };
-  if (playerControlled) group.traverse((child) => { if (child.isMesh) child.layers.disable(1); });
+  if (playerControlled) group.traverse((child) => {
+    if (!child.isMesh) return;
+    child.layers.disable(1);
+    child.castShadow = true;
+  });
   const shadow = new THREE.Mesh(shadowGeometry, shadowMaterial);
   shadow.rotation.x = -Math.PI / 2;
   shadow.scale.set(1.35, 0.83, 1);
@@ -2301,7 +2324,7 @@ let fireHeld = false;
 let cameraShake = 0;
 let jumpQueued = false;
 let jumpHeld = false;
-let sprintHeld = false;
+let sprintLocked = false;
 let slideQueued = false;
 let flowQueued = false;
 let lastPlayerPaintPosition = null;
@@ -2642,7 +2665,7 @@ function updatePlayer(delta) {
     .addScaledVector(cameraForward, input.y);
   if (move.lengthSq() > 1) move.normalize();
 
-  const sprintRequested = sprintHeld || keys.has('ShiftLeft') || keys.has('ShiftRight');
+  const sprintRequested = sprintLocked || keys.has('ShiftLeft') || keys.has('ShiftRight');
   player.slideCooldown = Math.max(0, player.slideCooldown - delta);
 
   if (flowQueued) {
@@ -2762,8 +2785,9 @@ function updatePlayer(delta) {
   }
 
   player.group.position.copy(player.position);
-  const yawDelta = Math.atan2(Math.sin(yaw - player.group.rotation.y), Math.cos(yaw - player.group.rotation.y));
-  player.group.rotation.y += yawDelta * (1 - Math.exp(-24 * delta));
+  const cameraFacing = -yaw;
+  const yawDelta = Math.atan2(Math.sin(cameraFacing - player.group.rotation.y), Math.cos(cameraFacing - player.group.rotation.y));
+  player.group.rotation.y += yawDelta * (1 - Math.exp(-30 * delta));
 
   if (player.sprinting || player.sliding) setWeaponHolstered(player, true);
   else if (!fireHeld) setWeaponHolstered(player, false);
@@ -3151,6 +3175,8 @@ function resetMatch() {
 }
 function startGame() {
   if (introActive || gameStarted) return;
+  sprintLocked = false;
+  updateSprintButton();
   gameStarted = false;
   introActive = true;
   introElapsed = 0;
@@ -3311,6 +3337,7 @@ renderer.domElement.addEventListener('pointerdown', (event) => {
     fireActor(player, getAimPoint());
   }
   if (isTouch && event.clientX > innerWidth * 0.38 && !event.target.closest('button')) {
+    renderer.domElement.setPointerCapture?.(event.pointerId);
     activePointers.set(event.pointerId, { type: 'look', x: event.clientX, y: event.clientY });
   }
 });
@@ -3336,15 +3363,9 @@ renderer.domElement.addEventListener('pointerup', releasePointer);
 renderer.domElement.addEventListener('pointercancel', releasePointer);
 window.addEventListener('pointerup', () => {
   if (!isTouch) fireHeld = false;
-  if (isTouch && sprintHeld && !sprintButton.matches(':active')) {
-    sprintHeld = false;
-    sprintButton.classList.remove('is-held');
-  }
 });
 window.addEventListener('pointercancel', () => {
   if (!isTouch) fireHeld = false;
-  sprintHeld = false;
-  sprintButton.classList.remove('is-held');
   jumpHeld = false;
 });
 
@@ -3397,18 +3418,16 @@ jumpButton.addEventListener('pointerdown', (event) => {
 jumpButton.addEventListener('pointerup', () => { jumpHeld = false; });
 jumpButton.addEventListener('pointercancel', () => { jumpHeld = false; });
 
+function updateSprintButton() {
+  sprintButton.classList.toggle('is-locked', sprintLocked);
+  sprintButton.setAttribute('aria-pressed', String(sprintLocked));
+  sprintButton.textContent = sprintLocked ? 'RUN ON' : 'RUN';
+}
 sprintButton.addEventListener('pointerdown', (event) => {
   event.preventDefault();
-  sprintHeld = true;
-  sprintButton.classList.add('is-held');
-  if (sprintButton.setPointerCapture) sprintButton.setPointerCapture(event.pointerId);
+  sprintLocked = !sprintLocked;
+  updateSprintButton();
 });
-const releaseSprint = () => {
-  sprintHeld = false;
-  sprintButton.classList.remove('is-held');
-};
-sprintButton.addEventListener('pointerup', releaseSprint);
-sprintButton.addEventListener('pointercancel', releaseSprint);
 slideButton.addEventListener('pointerdown', (event) => {
   event.preventDefault();
   slideQueued = true;
@@ -3453,7 +3472,7 @@ function animate() {
 function onResize() {
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
-  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 1.25));
+  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, isTouch ? 1.15 : 1.4));
   renderer.setSize(innerWidth, innerHeight);
 }
 addEventListener('resize', onResize);
