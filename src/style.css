@@ -547,7 +547,7 @@ button { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
   user-select: none;
   -webkit-user-select: none;
 }
-#sprint-button.is-held {
+#sprint-button.is-locked {
   color: #06202a;
   background: #a8f7ff;
   border-color: #e8ffff;
