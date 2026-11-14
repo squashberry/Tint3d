@@ -2509,13 +2509,20 @@ function updateProjectiles(delta) {
     p.velocity.y += p.gravity * delta;
     p.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), p.velocity.clone().normalize());
     const pos = p.mesh.position;
+    const travel = pos.clone().sub(previous);
+    const travelLengthSq = Math.max(0.000001, travel.lengthSq());
     let hitActor = false;
     for (const actor of actors) {
       if (actor.team === p.team || actor === p.owner || !actor.group.visible || actor.invulnerable > 0) continue;
-      const dx = pos.x - actor.position.x;
-      const dz = pos.z - actor.position.z;
-      const dy = pos.y - (actor.position.y + 1.05);
-      if (dx * dx + dz * dz < p.radius * p.radius && Math.abs(dy) < 0.8) {
+      const center = new THREE.Vector3(actor.position.x, actor.position.y + 1.02, actor.position.z);
+      const along = clamp(center.clone().sub(previous).dot(travel) / travelLengthSq, 0, 1);
+      const closest = previous.clone().addScaledVector(travel, along);
+      const dx = closest.x - center.x;
+      const dy = closest.y - center.y;
+      const dz = closest.z - center.z;
+      const combinedRadius = 0.54 + p.radius * 0.42;
+      if (dx * dx + dz * dz < combinedRadius * combinedRadius && Math.abs(dy) < 0.94) {
+        pos.copy(closest);
         damageActor(actor, actor.player ? 22 : 36, p.owner);
         spawnHitBurst(new THREE.Vector3(pos.x, actor.position.y + 1.05, pos.z), p.team, actor.player ? 1.25 : 1);
         if (actor.player) cameraShake = Math.max(cameraShake, 0.20);
@@ -2524,18 +2531,38 @@ function updateProjectiles(delta) {
         break;
       }
     }
-    const floorY = paintSurfaceHeight(pos.x, pos.z);
-    const hitWorld = solidBounds.some((box) => {
-      if (pos.y <= box.minY || pos.y >= box.maxY) return false;
-      if (box.shape === 'circle') {
-        const dx = pos.x - box.x;
-        const dz = pos.z - box.z;
-        return dx * dx + dz * dz < box.radius * box.radius;
+    let hitWorld = false;
+    let hitFloor = false;
+    if (!hitActor) {
+      const travelDistance = Math.sqrt(travelLengthSq);
+      const samples = Math.max(1, Math.ceil(travelDistance / 0.16));
+      for (let step = 1; step <= samples; step++) {
+        const sample = previous.clone().lerp(pos, step / samples);
+        if (Math.abs(sample.x) > HALF || Math.abs(sample.z) > HALF) break;
+        const floorY = paintSurfaceHeight(sample.x, sample.z);
+        if (sample.y <= floorY + 0.12) {
+          pos.copy(sample);
+          hitFloor = true;
+          break;
+        }
+        const solid = solidBounds.find((box) => {
+          if (sample.y <= box.minY || sample.y >= box.maxY) return false;
+          if (box.shape === 'circle') {
+            const dx = sample.x - box.x;
+            const dz = sample.z - box.z;
+            return dx * dx + dz * dz < (box.radius + p.radius * 0.35) ** 2;
+          }
+          return sample.x > box.minX - p.radius * 0.25 && sample.x < box.maxX + p.radius * 0.25 &&
+            sample.z > box.minZ - p.radius * 0.25 && sample.z < box.maxZ + p.radius * 0.25;
+        });
+        if (solid) {
+          pos.copy(sample);
+          hitWorld = true;
+          break;
+        }
       }
-      return pos.x > box.minX && pos.x < box.maxX &&
-        pos.z > box.minZ && pos.z < box.maxZ;
-    });
-    if (hitActor || hitWorld || pos.y <= floorY + 0.12 || Math.abs(pos.x) > HALF || Math.abs(pos.z) > HALF || p.life <= 0) {
+    }
+    if (hitActor || hitWorld || hitFloor || Math.abs(pos.x) > HALF || Math.abs(pos.z) > HALF || p.life <= 0) {
       if (!hitActor && Math.abs(pos.x) < HALF && Math.abs(pos.z) < HALF) {
         const wallFace = hitWorld ? paintableWalls.find((wall) =>
           pos.x >= wall.minX && pos.x <= wall.maxX &&
