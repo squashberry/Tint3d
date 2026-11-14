@@ -1302,6 +1302,17 @@ function groundHeight(x, z) {
   if (Math.abs(x) <= 2.85 && z < -2.9 && z > -6.9) return clamp((z + 6.9) / 4, 0, 1) * 1.05;
   return 0;
 }
+
+function paintSurfaceHeight(x, z) {
+  if (Math.abs(x) <= 4.9 && Math.abs(z) <= 2.75) return 1.1675;
+  if (Math.abs(x) <= 2.85 && z >= 2.725 && z <= 6.975) {
+    return clamp((6.975 - z) / 4.25, 0, 1) * 1.05;
+  }
+  if (Math.abs(x) <= 2.85 && z >= -6.975 && z <= -2.725) {
+    return clamp((z + 6.975) / 4.25, 0, 1) * 1.05;
+  }
+  return -0.045;
+}
 function isBlockedAt(x, z, feetY, radius = 0.46) {
   for (const box of solidBounds) {
     if (x < box.x - box.halfX - radius || x > box.x + box.halfX + radius) continue;
@@ -1715,8 +1726,8 @@ for (const team of [1, 2]) {
 function addPersistentWetInk(position, team, radius, seed) {
   const index = wetPoolCounts[team];
   if (index >= 128) return;
-  const floorY = groundHeight(position.x, position.z);
-  wetPoolTransform.position.set(position.x, floorY > 0.02 ? floorY + 0.014 : -0.031, position.z);
+  const surfaceY = paintSurfaceHeight(position.x, position.z);
+  wetPoolTransform.position.set(position.x, surfaceY + 0.003, position.z);
   const sx = radius * (0.82 + 0.22 * Math.sin(seed * 8));
   const sz = radius * (0.68 + 0.23 * Math.cos(seed * 5));
   wetPoolTransform.scale.set(sx, 1, sz);
@@ -1731,8 +1742,7 @@ function addPersistentWetInk(position, team, radius, seed) {
 const projectiles = [];
 const particles = [];
 function spawnSplash(position, team) {
-  const level = groundHeight(position.x, position.z);
-  const ground = level > 0.02 ? level + 0.014 : -0.031;
+  const ground = paintSurfaceHeight(position.x, position.z) + 0.003;
   const puddleMaterial = splashMaterials[team].clone();
   const puddle = new THREE.Mesh(splashPuddleGeometry, puddleMaterial);
   puddle.rotation.x = -Math.PI / 2;
@@ -2705,7 +2715,7 @@ function startGame() {
     actor.position.set(lineupX[index], 0, 8.4);
     actor.velocity.set(0, 0, 0);
     actor.group.position.copy(actor.position);
-    actor.group.rotation.set(0, 0, 0);
+    actor.group.rotation.set(0, Math.PI, 0);
     actor.group.visible = true;
     resetCharacterPose(actor);
   });
