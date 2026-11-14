@@ -80,6 +80,7 @@ function mat(key, color, roughness = 0.78, metalness = 0.08, emissive = 0x000000
 }
 function mesh(geometry, material, parent, x = 0, y = 0, z = 0) {
   const item = new THREE.Mesh(geometry, material);
+  item.layers.enable(1);
   item.position.set(x, y, z);
   parent.add(item);
   return item;
@@ -131,9 +132,10 @@ paintTexture.generateMipmaps = true;
 paintTexture.minFilter = THREE.LinearMipmapLinearFilter;
 const floor = mesh(
   new THREE.PlaneGeometry(ARENA, ARENA),
-  new THREE.MeshStandardMaterial({ map: paintTexture, roughness: 0.84, metalness: 0.08 }),
+  new THREE.MeshStandardMaterial({ map: paintTexture, roughness: 0.76, metalness: 0.08 }),
   scene, 0, -0.045, 0
 );
+floor.layers.enable(1);
 floor.rotation.x = -Math.PI / 2;
 const underfloor = mesh(shared.box, mat('underfloor', 0x17242f, 0.94, 0.04), scene, 0, -0.42, 0);
 underfloor.scale.set(ARENA + 1.2, 0.7, ARENA + 1.2);
@@ -276,6 +278,14 @@ function drawSplat(position, team, radius, seed = Math.random()) {
   paintCtx.closePath();
   paintCtx.fill();
   paintCtx.shadowBlur = 0;
+  // Fine glossy contour and tapered flicks make the mark feel like wet paint,
+  // not a flat circular brush stamp.
+  paintCtx.globalAlpha = 0.34;
+  paintCtx.strokeStyle = TEAM[team].light;
+  paintCtx.lineWidth = Math.max(2, r * 0.035);
+  paintCtx.beginPath();
+  paintCtx.ellipse(px - r * 0.05, py - r * 0.04, r * 0.60, r * 0.48, seed * 2.4, Math.PI * 1.08, Math.PI * 1.86);
+  paintCtx.stroke();
   paintCtx.globalAlpha = 0.8;
   paintCtx.fillStyle = color;
   for (let i = 0; i < 5; i++) {
@@ -285,6 +295,24 @@ function drawSplat(position, team, radius, seed = Math.random()) {
     paintCtx.beginPath();
     paintCtx.ellipse(px + Math.cos(a) * d, py + Math.sin(a) * d, dot * 1.2, dot * 0.76, a, 0, Math.PI * 2);
     paintCtx.fill();
+  }
+  for (let i = 0; i < 4; i++) {
+    const a = seed * 5.7 + i * 1.53;
+    const start = r * (0.52 + (i % 2) * 0.16);
+    const end = r * (0.92 + (i % 3) * 0.18);
+    paintCtx.strokeStyle = color;
+    paintCtx.globalAlpha = 0.72;
+    paintCtx.lineWidth = Math.max(2, r * (0.035 + (i % 2) * 0.012));
+    paintCtx.lineCap = 'round';
+    paintCtx.beginPath();
+    paintCtx.moveTo(px + Math.cos(a) * start, py + Math.sin(a) * start);
+    paintCtx.quadraticCurveTo(
+      px + Math.cos(a + 0.12) * (start + end) * 0.52,
+      py + Math.sin(a + 0.12) * (start + end) * 0.52,
+      px + Math.cos(a) * end,
+      py + Math.sin(a) * end
+    );
+    paintCtx.stroke();
   }
   paintCtx.restore();
   paintTexture.needsUpdate = true;
@@ -427,6 +455,40 @@ function makeCharacter(team, variation = 0) {
   packStripe.scale.set(0.29, 0.12, 0.025);
   const headband = mesh(shared.box, bodyMat, group, 0, 1.88, -0.27);
   headband.scale.set(0.57, 0.09, 0.09);
+  const browMat = mat('brow-' + variation, hairColors[variation % hairColors.length], 0.7, 0.02);
+  for (const side of [-1, 1]) {
+    const brow = mesh(shared.box, browMat, group, side * 0.105, 1.835, -0.354);
+    brow.scale.set(0.12, 0.035, 0.025);
+    const ear = mesh(shared.smallSphere, skin, group, side * 0.292, 1.69, -0.015);
+    ear.scale.set(0.07, 0.105, 0.075);
+    const shoulder = mesh(shared.sphere, trimMat, group, side * 0.39, 1.36, -0.045);
+    shoulder.scale.set(0.20, 0.14, 0.22);
+    const knee = mesh(shared.box, bodyMat, group, side * 0.17, 0.39, -0.105);
+    knee.scale.set(0.22, 0.12, 0.09);
+    const sole = mesh(shared.box, trimMat, group, side * 0.18, 0.055, -0.10);
+    sole.scale.set(0.35, 0.055, 0.50);
+  }
+  const mouth = mesh(shared.box, dark, group, 0, 1.615, -0.332);
+  mouth.scale.set(0.095, 0.025, 0.022);
+  // Different cut silhouettes keep the crew from reading as recoloured duplicates.
+  if (variation % 3 === 0) {
+    for (const side of [-1, 1]) {
+      const lock = mesh(shared.limb, hair, group, side * 0.25, 1.65, 0.055);
+      lock.scale.set(0.60, 0.55, 0.62);
+      lock.rotation.z = side * -0.36;
+    }
+  } else if (variation % 3 === 1) {
+    const cap = mesh(shared.box, trimMat, group, 0, 2.02, -0.015);
+    cap.scale.set(0.66, 0.13, 0.64);
+    const brim = mesh(shared.box, bodyMat, group, 0, 1.94, -0.30);
+    brim.scale.set(0.62, 0.055, 0.36);
+  } else {
+    const topKnot = mesh(shared.sphere, hair, group, 0, 2.18, 0.06);
+    topKnot.scale.set(0.19, 0.22, 0.18);
+    const sideLock = mesh(shared.limb, hair, group, 0.28, 1.65, 0.04);
+    sideLock.scale.set(0.62, 0.58, 0.62);
+    sideLock.rotation.z = -0.42;
+  }
   // Original compact pressure sprayer: twin reservoir, offset grip and wide nozzle.
   const weapon = new THREE.Group();
   const barrel = mesh(shared.cylinder, trimMat, weapon, 0, 0, -0.39);
@@ -442,9 +504,11 @@ function makeCharacter(team, variation = 0) {
   weapon.position.set(0.47, 1.20, -0.24);
   group.add(weapon);
   group.userData.weapon = weapon;
-  group.userData.legs = group.children.filter((child) => child.geometry === shared.limb);
-  group.userData.arms = group.children.filter((child) => child.geometry === shared.limb).slice(0, 2);
+  const limbs = group.children.filter((child) => child.geometry === shared.limb);
+  group.userData.arms = [limbs[0], limbs[2]];
+  group.userData.legs = [limbs[1], limbs[3]];
   group.userData.palette = palette;
+  group.traverse((child) => { if (child.isMesh) child.layers.enable(1); });
   return group;
 }
 
@@ -456,8 +520,10 @@ function createActor(team, variation, x, z, playerControlled = false) {
     fireCooldown: 0.6 + Math.random() * 1.4, paintCooldown: 0.3 + Math.random() * 0.4,
     moveCooldown: 0, target: new THREE.Vector3(x, 0, z),
     respawn: 0, invulnerable: 0, eliminations: 0, walkPhase: Math.random() * 6,
-    ink: 100, flow: 0, flowCooldown: 0, verticalVelocity: 0, grounded: true
+    ink: 100, flow: 0, flowCooldown: 0, verticalVelocity: 0, grounded: true,
+    velocity: new THREE.Vector3(), recoil: 0
   };
+  if (playerControlled) group.traverse((child) => { if (child.isMesh) child.layers.disable(1); });
   group.position.copy(actor.position);
   scene.add(group);
   return actor;
@@ -543,14 +609,13 @@ function playPop(power = 1) {
   } catch { /* Optional sound; gameplay does not depend on audio. */ }
 }
 function getAimPoint() {
+  // Aim in full 3D: the reticle ray can hit elevated props or characters,
+  // and if it points into open sky the shot continues along that upward ray.
+  raycaster.layers.set(1);
   raycaster.setFromCamera(centerScreen, camera);
-  const hit = raycaster.ray.intersectPlane(groundPlane, aimPoint);
-  if (hit) {
-    const flatDistance = Math.hypot(aimPoint.x - player.position.x, aimPoint.z - player.position.z);
-    if (flatDistance > 3.2) return aimPoint.clone();
-  }
-  const forward = new THREE.Vector3(Math.sin(yaw), 0, -Math.cos(yaw));
-  return player.position.clone().addScaledVector(forward, 18);
+  const hits = raycaster.intersectObjects(scene.children, true);
+  if (hits.length) return hits[0].point.clone();
+  return raycaster.ray.origin.clone().addScaledVector(raycaster.ray.direction, 32);
 }
 function muzzlePosition(actor) {
   const forward = new THREE.Vector3(Math.sin(actor.group.rotation.y), 0, -Math.cos(actor.group.rotation.y));
@@ -563,8 +628,8 @@ function spawnProjectile(origin, target, team, owner) {
   scene.add(mesh);
   const delta = target.clone().sub(origin);
   const distance = Math.max(1, Math.hypot(delta.x, delta.z));
-  const travel = clamp(distance / 27, 0.17, 1.15);
-  const gravity = -3.4;
+  const travel = clamp(distance / 34, 0.12, 0.95);
+  const gravity = -1.8;
   const velocity = new THREE.Vector3(delta.x / travel, delta.y / travel - 0.5 * gravity * travel, delta.z / travel);
   projectiles.push({ mesh, velocity, gravity, life: 1.3, team, owner, radius: 0.34 });
 }
@@ -572,12 +637,14 @@ function fireActor(actor, target) {
   if (actor.fireCooldown > 0 || actor.ink < 4 || !actor.group.visible) return;
   if (actor.player) actor.group.rotation.y = yaw;
   actor.fireCooldown = actor.player ? 0.115 : 0.95 + Math.random() * 0.6;
-  actor.ink = Math.max(0, actor.ink - (actor.player ? 4.2 : 3.2));
+  actor.ink = Math.max(0, actor.ink - (actor.player ? 3.7 : 3.2));
+  actor.recoil = actor.player ? 0.13 : 0.055;
   const destination = target.clone();
-  destination.y = groundHeight(destination.x, destination.z) + 0.12;
+  // Player shots preserve the actual reticle height. Bots aim around torso height.
   if (!actor.player) {
-    destination.x += (Math.random() - 0.5) * 2.4;
-    destination.z += (Math.random() - 0.5) * 2.4;
+    destination.y += 0.08;
+    destination.x += (Math.random() - 0.5) * 1.5;
+    destination.z += (Math.random() - 0.5) * 1.5;
   }
   spawnProjectile(muzzlePosition(actor), destination, actor.team, actor);
   if (actor.player) {
@@ -606,6 +673,7 @@ function respawnActor(actor) {
   const side = actor.variation % 2 === 0 ? -1 : 1;
   actor.position.set(side * (3.5 + actor.variation * 1.15), 0, sign * (14.0 + Math.random() * 2.2));
   actor.position.y = groundHeight(actor.position.x, actor.position.z);
+  actor.velocity.set(0, 0, 0);
   actor.health = 100;
   actor.ink = 100;
   actor.respawn = 0;
@@ -700,15 +768,12 @@ function updatePlayer(delta) {
   }
   player.flow = Math.max(0, player.flow - delta);
   player.flowCooldown = Math.max(0, player.flowCooldown - delta);
-  const speed = player.flow > 0 ? 13.7 : 7.4;
-  const oldX = player.position.x;
-  const oldZ = player.position.z;
-  player.position.x = clamp(player.position.x + move.x * speed * delta, -18.7, 18.7);
-  player.position.z = clamp(player.position.z + move.z * speed * delta, -18.7, 18.7);
-  if (groundHeight(player.position.x, player.position.z) > 0 && Math.abs(player.position.x) > 2.8 && Math.abs(player.position.x) < 5.2) {
-    player.position.x = oldX;
-    player.position.z = oldZ;
-  }
+  const speed = player.flow > 0 ? 15.8 : 9.0;
+  const desiredVelocity = new THREE.Vector3(move.x * speed, 0, move.z * speed);
+  const response = move.lengthSq() > 0.001 ? 31 : 39;
+  player.velocity.lerp(desiredVelocity, 1 - Math.exp(-response * delta));
+  player.position.x = clamp(player.position.x + player.velocity.x * delta, -18.7, 18.7);
+  player.position.z = clamp(player.position.z + player.velocity.z * delta, -18.7, 18.7);
   const baseY = groundHeight(player.position.x, player.position.z);
   if (jumpQueued && player.grounded) {
     player.verticalVelocity = 7.3;
@@ -727,12 +792,13 @@ function updatePlayer(delta) {
     player.position.y = baseY;
   }
   player.group.position.copy(player.position);
-  if (move.lengthSq() > 0.001) player.group.rotation.y = Math.atan2(-move.x, -move.z);
+  const yawDelta = Math.atan2(Math.sin(yaw - player.group.rotation.y), Math.cos(yaw - player.group.rotation.y));
+  player.group.rotation.y += yawDelta * (1 - Math.exp(-24 * delta));
   player.fireCooldown = Math.max(0, player.fireCooldown - delta);
   player.ink = Math.min(100, player.ink + delta * (ownerAt(player.position.x, player.position.z) === BLUE ? 14 : 8));
   player.invulnerable = Math.max(0, player.invulnerable - delta);
   player.walkPhase += delta * (move.lengthSq() > 0 ? 10 : 2);
-  animateActor(player, move.length());
+  animateActor(player, move.length(), delta);
   paintTrailTimer -= delta;
   if (move.lengthSq() > 0.03 && paintTrailTimer <= 0) {
     paintTrailTimer = 0.26;
@@ -740,16 +806,26 @@ function updatePlayer(delta) {
   }
   updateInk();
 }
-function animateActor(actor, moving) {
-  const limbs = actor.group.userData.legs || [];
-  if (limbs.length >= 4) {
-    const swing = moving > 0.05 ? Math.sin(actor.walkPhase) * 0.44 : 0;
-    limbs[0].rotation.x = swing;
-    limbs[1].rotation.x = -swing;
-    limbs[2].rotation.x = -swing * 0.68;
-    limbs[3].rotation.x = swing * 0.68;
+function animateActor(actor, moving, delta = 0.016) {
+  const legs = actor.group.userData.legs || [];
+  const arms = actor.group.userData.arms || [];
+  const swing = moving > 0.05 ? Math.sin(actor.walkPhase) * 0.62 : 0;
+  if (legs.length >= 2) {
+    legs[0].rotation.x = swing;
+    legs[1].rotation.x = -swing;
   }
-  actor.group.position.y += moving > 0.05 ? Math.abs(Math.sin(actor.walkPhase * 2)) * 0.035 : 0;
+  if (arms.length >= 2) {
+    arms[0].rotation.x = -0.22 - swing * 0.32;
+    arms[1].rotation.x = -0.22 + swing * 0.32;
+  }
+  actor.recoil = Math.max(0, (actor.recoil || 0) - delta * 0.9);
+  const weapon = actor.group.userData.weapon;
+  if (weapon) {
+    weapon.position.z = -0.24 + actor.recoil;
+    weapon.rotation.x = moving > 0.05 ? Math.sin(actor.walkPhase * 2) * 0.025 : 0;
+  }
+  const bob = moving > 0.05 ? Math.abs(Math.sin(actor.walkPhase * 2)) * 0.055 : 0;
+  actor.group.position.y = actor.position.y + bob;
 }
 function updateBots(delta) {
   for (const actor of [...blueBots, ...orangeBots]) {
@@ -773,19 +849,13 @@ function updateBots(delta) {
     direction.y = 0;
     if (direction.lengthSq() > 0.2) {
       direction.normalize();
-      const oldX = actor.position.x;
-      const oldZ = actor.position.z;
-      actor.position.x = clamp(actor.position.x + direction.x * 3.15 * delta, -18.2, 18.2);
-      actor.position.z = clamp(actor.position.z + direction.z * 3.15 * delta, -18.2, 18.2);
-      if (Math.abs(actor.position.x) > 2.8 && Math.abs(actor.position.x) < 5.2 && groundHeight(actor.position.x, actor.position.z) > 0) {
-        actor.position.x = oldX;
-        actor.position.z = oldZ;
-      }
+      actor.position.x = clamp(actor.position.x + direction.x * 4.05 * delta, -18.2, 18.2);
+      actor.position.z = clamp(actor.position.z + direction.z * 4.05 * delta, -18.2, 18.2);
       actor.position.y = groundHeight(actor.position.x, actor.position.z);
       actor.group.position.copy(actor.position);
       actor.group.rotation.y = Math.atan2(-direction.x, -direction.z);
       actor.walkPhase += delta * 8;
-      animateActor(actor, 1);
+      animateActor(actor, 1, delta);
     }
     if (actor.paintCooldown <= 0) {
       actor.paintCooldown = 0.72 + Math.random() * 0.45;
@@ -799,16 +869,23 @@ function updateBots(delta) {
   }
 }
 function updateCamera(delta) {
-  const target = player.position.clone().add(new THREE.Vector3(0, 1.46, 0));
-  const distance = 7.3;
+  const target = player.position.clone().add(new THREE.Vector3(0, 1.48, 0));
+  const distance = 7.15;
   const offset = new THREE.Vector3(
-    Math.sin(yaw) * distance * Math.cos(pitch),
-    2.25 + Math.sin(pitch) * 5.0,
-    Math.cos(yaw) * distance * Math.cos(pitch)
+    Math.sin(yaw) * distance,
+    3.05,
+    Math.cos(yaw) * distance
   );
   const desired = target.clone().add(offset);
-  camera.position.lerp(desired, 1 - Math.exp(-10.5 * delta));
-  camera.lookAt(target.clone().add(new THREE.Vector3(Math.sin(yaw) * 1.6, 0.08, -Math.cos(yaw) * 1.6)));
+  camera.position.lerp(desired, 1 - Math.exp(-15.5 * delta));
+  const forward = new THREE.Vector3(Math.sin(yaw), 0, -Math.cos(yaw));
+  const lookTarget = target.clone()
+    .addScaledVector(forward, 1.9)
+    .add(new THREE.Vector3(0, -Math.sin(pitch) * 8.2, 0));
+  camera.lookAt(lookTarget);
+  const wantedFov = player.flow > 0 ? 71 : 66;
+  camera.fov = THREE.MathUtils.damp(camera.fov, wantedFov, 7.5, delta);
+  camera.updateProjectionMatrix();
 }
 function updateMinimap(delta) {
   miniTimer -= delta;
@@ -906,6 +983,7 @@ function resetMatch() {
     const spread = actor.player ? 0 : (actor.variation - 2) * 2.2;
     actor.position.set(spread, 0, sign * (actor.player ? 15.2 : 13.4 + (actor.variation % 2) * 2.2));
     actor.position.y = groundHeight(actor.position.x, actor.position.z);
+    actor.velocity.set(0, 0, 0);
     actor.group.position.copy(actor.position);
     actor.group.rotation.set(0, actor.team === BLUE ? 0 : Math.PI, 0);
     actor.fireCooldown = 0.8 + Math.random();
@@ -969,7 +1047,7 @@ document.addEventListener('pointerlockchange', () => {
 document.addEventListener('mousemove', (event) => {
   if (document.pointerLockElement && gameStarted) {
     yaw -= event.movementX * 0.0027;
-    pitch = clamp(pitch + event.movementY * 0.0018, -0.16, 0.66);
+    pitch = clamp(pitch + event.movementY * 0.0018, -1.05, 0.72);
   }
 });
 document.addEventListener('keydown', (event) => {
@@ -995,7 +1073,7 @@ renderer.domElement.addEventListener('pointermove', (event) => {
   const dx = event.clientX - state.x;
   const dy = event.clientY - state.y;
   yaw -= dx * 0.006;
-  pitch = clamp(pitch + dy * 0.004, -0.16, 0.66);
+  pitch = clamp(pitch + dy * 0.004, -1.05, 0.72);
   state.x = event.clientX;
   state.y = event.clientY;
 });
