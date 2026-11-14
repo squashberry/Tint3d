@@ -341,3 +341,193 @@ button { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
   color: inherit;
   background: transparent;
 }
+
+
+/* Pre-match squad reveal and 3–2–1 deployment sequence. */
+.match-intro {
+  position: absolute;
+  z-index: 7;
+  inset: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: clamp(18px, 3.2vw, 42px);
+  color: #f4f4e8;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, rgba(5,14,20,.72), rgba(5,14,20,.20) 50%, rgba(5,14,20,.72)),
+    linear-gradient(0deg, rgba(4,12,18,.85), transparent 35%, transparent 65%, rgba(4,12,18,.55));
+  animation: match-intro-in .42s ease-out both;
+}
+.match-intro.hidden { display: none !important; }
+@keyframes match-intro-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.match-intro-top, .match-intro-bottom {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  color: #b8d1cf;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: .2em;
+}
+.intro-kicker b { color: var(--cyan); padding: 0 7px; }
+.intro-live { display: inline-flex; align-items: center; gap: 8px; }
+.intro-live i {
+  width: 7px; height: 7px; display: inline-block; border-radius: 50%;
+  background: #ff7652; box-shadow: 0 0 14px #ff7652;
+  animation: intro-live-pulse 1s ease-in-out infinite;
+}
+@keyframes intro-live-pulse { 50% { opacity: .35; transform: scale(.72); } }
+.match-intro-title {
+  position: absolute;
+  top: 42%;
+  left: 50%;
+  width: min(520px, 92vw);
+  transform: translate(-50%, -50%);
+  display: grid;
+  justify-items: center;
+  text-align: center;
+  text-shadow: 0 5px 34px rgba(0,0,0,.72);
+}
+.match-intro-title span {
+  color: #c7e6e2;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .32em;
+}
+.match-intro-title strong {
+  min-height: 1em;
+  color: #fff8e8;
+  font: 900 clamp(86px, 16vw, 190px)/.9 'Barlow Condensed', sans-serif;
+  letter-spacing: -.055em;
+  text-shadow: 0 0 38px rgba(32,216,233,.25), 0 8px 36px rgba(0,0,0,.6);
+}
+.match-intro-title small {
+  color: #b5c9c5;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: .2em;
+}
+.intro-team {
+  position: absolute;
+  bottom: clamp(58px, 10vh, 105px);
+  width: min(43vw, 610px);
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid rgba(194,224,220,.22);
+  background: linear-gradient(135deg, rgba(6,23,31,.88), rgba(7,20,27,.58));
+  box-shadow: 0 20px 58px rgba(0,0,0,.34), inset 0 1px rgba(255,255,255,.07);
+  backdrop-filter: blur(8px);
+}
+.intro-team-blue { left: clamp(18px, 3.2vw, 42px); border-left: 3px solid var(--cyan); }
+.intro-team-orange { right: clamp(18px, 3.2vw, 42px); border-right: 3px solid var(--coral); }
+.intro-team-heading { display: grid; gap: 3px; }
+.intro-team-heading span {
+  color: #8ea8aa; font-size: 7px; font-weight: 900; letter-spacing: .2em;
+}
+.intro-team-heading strong {
+  color: #f8f4e8; font: 900 29px/.95 'Barlow Condensed', sans-serif; letter-spacing: .05em;
+}
+.intro-team-blue .intro-team-heading strong { color: #8bf4f2; }
+.intro-team-orange .intro-team-heading strong { color: #ffad8f; }
+.intro-team-heading small { color: #899fa5; font-size: 7px; font-weight: 900; letter-spacing: .18em; }
+.intro-roster { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+.intro-operator {
+  min-width: 0;
+  min-height: 82px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid rgba(222,241,233,.15);
+  background: rgba(255,255,255,.045);
+  opacity: 0;
+  transform: translateY(16px);
+  animation: intro-operator-enter .46s cubic-bezier(.18,.78,.25,1) forwards;
+  animation-delay: calc(var(--slot) * 85ms + .18s);
+}
+@keyframes intro-operator-enter {
+  to { opacity: 1; transform: translateY(0); }
+}
+.operator-mark {
+  width: 31px; height: 31px;
+  display: grid; place-items: center;
+  border-radius: 50%;
+  font: 900 11px 'Barlow Condensed', sans-serif;
+  color: #061b25;
+  background: linear-gradient(145deg, #d4fffb, var(--cyan));
+  box-shadow: 0 0 18px rgba(32,216,233,.22);
+}
+.intro-team-orange .operator-mark {
+  color: #2a1010;
+  background: linear-gradient(145deg, #ffe1c9, var(--coral));
+  box-shadow: 0 0 18px rgba(255,118,82,.20);
+}
+.operator-name {
+  max-width: 100%;
+  overflow: hidden;
+  color: #e7efea;
+  font: 800 10px 'Barlow Condensed', sans-serif;
+  letter-spacing: .10em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.operator-role {
+  color: #7f989f;
+  font-size: 6px;
+  font-weight: 900;
+  letter-spacing: .13em;
+}
+.intro-versus {
+  position: absolute;
+  left: 50%;
+  bottom: clamp(75px, 12vh, 124px);
+  transform: translateX(-50%);
+  color: rgba(242,245,226,.52);
+  font: 900 19px 'Barlow Condensed', sans-serif;
+  letter-spacing: .12em;
+}
+.match-intro-bottom { color: #8ea4a9; }
+.match-intro-bottom span:last-child { color: #c2d3cb; }
+@media (max-width: 780px) {
+  .match-intro { padding: 16px 12px; }
+  .match-intro-top, .match-intro-bottom { font-size: 6px; letter-spacing: .12em; }
+  .match-intro-title { top: 38%; }
+  .match-intro-title span { font-size: 7px; letter-spacing: .2em; }
+  .match-intro-title strong { font-size: clamp(78px, 23vw, 120px); }
+  .match-intro-title small { font-size: 7px; letter-spacing: .1em; }
+  .intro-team {
+    bottom: 62px;
+    width: calc(50% - 18px);
+    padding: 8px 6px;
+    gap: 8px;
+  }
+  .intro-team-blue { left: 9px; }
+  .intro-team-orange { right: 9px; }
+  .intro-team-heading strong { font-size: 19px; }
+  .intro-team-heading span, .intro-team-heading small { font-size: 5px; }
+  .intro-roster { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 3px; }
+  .intro-operator { min-height: 61px; gap: 5px; }
+  .operator-mark { width: 22px; height: 22px; font-size: 8px; }
+  .operator-name { font-size: 7px; letter-spacing: .04em; }
+  .operator-role { font-size: 5px; letter-spacing: .04em; }
+  .intro-versus { bottom: 37px; font-size: 13px; }
+  .match-intro-bottom { display: none; }
+}
+@media (max-height: 560px) and (orientation: landscape) {
+  .match-intro { padding: 10px 20px; }
+  .intro-team { bottom: 43px; padding: 8px; }
+  .intro-operator { min-height: 52px; gap: 3px; }
+  .operator-mark { width: 19px; height: 19px; }
+  .match-intro-title { top: 39%; }
+  .match-intro-title strong { font-size: 74px; }
+  .intro-versus { bottom: 30px; }
+  .match-intro-bottom { display: none; }
+}

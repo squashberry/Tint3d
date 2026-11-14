@@ -16,7 +16,9 @@ const clamp = THREE.MathUtils.clamp;
 const root = document.querySelector('#game-stage');
 const $ = (id) => document.getElementById(id);
 const ui = {
-  start: $('start-screen'), pause: $('pause-screen'), result: $('result-screen'),
+  start: $('start-screen'), intro: $('match-intro'), pause: $('pause-screen'), result: $('result-screen'),
+  introPhase: $('match-intro-phase'), introCount: $('match-intro-count'), introStatus: $('match-intro-status'),
+  introBlueRoster: $('intro-blue-roster'), introOrangeRoster: $('intro-orange-roster'),
   timer: $('timer'), blue: $('blue-score'), orange: $('orange-score'),
   blueFill: $('blue-fill'), orangeFill: $('orange-fill'),
   ink: $('ink-fill'), inkLabel: $('ink-label'),
@@ -136,6 +138,12 @@ const paintCanvas = document.createElement('canvas');
 paintCanvas.width = 1024;
 paintCanvas.height = 1024;
 const paintCtx = paintCanvas.getContext('2d', { alpha: false });
+const raisedPaintCanvas = document.createElement('canvas');
+raisedPaintCanvas.width = 1024;
+raisedPaintCanvas.height = 1024;
+const raisedPaintCtx = raisedPaintCanvas.getContext('2d', { alpha: true });
+raisedPaintCtx.clearRect(0, 0, 1024, 1024);
+
 
 const paintRoughnessCanvas = document.createElement('canvas');
 paintRoughnessCanvas.width = 1024;
@@ -421,6 +429,12 @@ paintTexture.colorSpace = THREE.SRGBColorSpace;
 paintTexture.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
 paintTexture.generateMipmaps = true;
 paintTexture.minFilter = THREE.LinearMipmapLinearFilter;
+const raisedPaintTexture = new THREE.CanvasTexture(raisedPaintCanvas);
+raisedPaintTexture.colorSpace = THREE.SRGBColorSpace;
+raisedPaintTexture.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
+raisedPaintTexture.generateMipmaps = true;
+raisedPaintTexture.minFilter = THREE.LinearMipmapLinearFilter;
+
 const floor = mesh(
   new THREE.PlaneGeometry(ARENA, ARENA),
   new THREE.MeshPhysicalMaterial({
@@ -628,6 +642,61 @@ rampA.rotation.set(0, 0, 0);
 rampB.rotation.set(0, Math.PI, 0);
 rampA.scale.set(1, 1, 1);
 rampB.scale.set(1, 1, 1);
+
+// These transparent overlays use the same world UV coordinates as the arena
+// floor paint canvas. They sit a few millimetres above the deck/ramp collision
+// surfaces, so hits remain visible instead of being drawn underneath them.
+function addWalkablePaintOverlay(name, corners) {
+  const geometry = new THREE.BufferGeometry();
+  const positions = [];
+  const uvs = [];
+  for (const corner of corners) {
+    const [x, y, z] = corner;
+    positions.push(x, y + 0.018, z);
+    uvs.push((x + HALF) / ARENA, (HALF - z) / ARENA);
+  }
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setIndex([0, 1, 2, 1, 3, 2]);
+  geometry.computeVertexNormals();
+  const material = new THREE.MeshPhysicalMaterial({
+    map: raisedPaintTexture,
+    color: 0xffffff,
+    transparent: true,
+    opacity: 1,
+    alphaTest: 0.012,
+    roughness: 0.16,
+    metalness: 0.025,
+    clearcoat: 0.96,
+    clearcoatRoughness: 0.035,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -2,
+    polygonOffsetUnits: -2
+  });
+  const overlay = new THREE.Mesh(geometry, material);
+  overlay.name = name;
+  overlay.layers.set(0);
+  overlay.renderOrder = 3;
+  overlay.frustumCulled = false;
+  scene.add(overlay);
+  return overlay;
+}
+
+const deckPaintOverlay = addWalkablePaintOverlay('Deck wet ink layer', [
+  [-4.9, 1.1675, 2.75], [4.9, 1.1675, 2.75],
+  [-4.9, 1.1675, -2.75], [4.9, 1.1675, -2.75]
+]);
+const rampNorthPaintOverlay = addWalkablePaintOverlay('North ramp wet ink layer', [
+  [-2.85, 0.0, 6.9], [2.85, 0.0, 6.9],
+  [-2.85, 1.05, 2.9], [2.85, 1.05, 2.9]
+]);
+const rampSouthPaintOverlay = addWalkablePaintOverlay('South ramp wet ink layer', [
+  [-2.85, 1.05, -2.9], [2.85, 1.05, -2.9],
+  [-2.85, 0.0, -6.9], [2.85, 0.0, -6.9]
+]);
+
 for (let z = -6.5; z <= 6.5; z += 1) {
   block(-2.7, 0.12, z, 0.11, 0.06, 0.28, 0xffc06b);
   block(2.7, 0.12, z, 0.11, 0.06, 0.28, 0xffc06b);
@@ -1342,75 +1411,91 @@ function stampWetSurface(px, py, r, points, seed) {
   paintClearcoatTexture.needsUpdate = true;
 }
 
-function drawSplat(position, team, radius, seed = Math.random()) {
+function drawInkMark(ctx, team, px, py, r, seed) {
   const color = TEAM[team].ink;
-  const px = ((position.x + HALF) / ARENA) * paintCanvas.width;
-  const py = ((HALF - position.z) / ARENA) * paintCanvas.height;
-  const r = radius * (paintCanvas.width / ARENA);
-  const sides = 13;
   const points = [];
+  const sides = 13;
   for (let i = 0; i < sides; i++) {
     const angle = i / sides * Math.PI * 2;
     const wobble = 0.72 + 0.28 * Math.abs(Math.sin(seed * 17 + i * 2.41));
     const stretch = 0.83 + 0.30 * Math.sin(seed * 4 + i * 1.7);
     points.push([px + Math.cos(angle) * r * wobble * stretch, py + Math.sin(angle) * r * wobble]);
   }
-  paintCtx.save();
-  paintCtx.globalCompositeOperation = 'source-over';
-  paintCtx.shadowColor = color;
-  paintCtx.shadowBlur = Math.max(3, r * 0.08);
-  const gradient = paintCtx.createRadialGradient(px - r * 0.24, py - r * 0.25, r * 0.04, px, py, r * 1.12);
+
+  ctx.save();
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.shadowColor = color;
+  ctx.shadowBlur = Math.max(3, r * 0.08);
+  const gradient = ctx.createRadialGradient(px-r*.24, py-r*.25, r*.04, px, py, r*1.12);
   gradient.addColorStop(0, TEAM[team].light);
-  gradient.addColorStop(0.23, color);
+  gradient.addColorStop(.23, color);
   gradient.addColorStop(1, TEAM[team].deep);
-  paintCtx.fillStyle = gradient;
-  paintCtx.beginPath();
+  ctx.fillStyle = gradient;
+  ctx.beginPath();
   points.forEach((p, i) => {
-    if (i === 0) paintCtx.moveTo(p[0], p[1]);
-    else paintCtx.lineTo(p[0], p[1]);
+    if (i === 0) ctx.moveTo(p[0], p[1]);
+    else ctx.lineTo(p[0], p[1]);
   });
-  paintCtx.closePath();
-  paintCtx.fill();
-  paintCtx.shadowBlur = 0;
-  // Fine glossy contour and tapered flicks make the mark feel like wet paint,
-  // not a flat circular brush stamp.
-  paintCtx.globalAlpha = 0.34;
-  paintCtx.strokeStyle = TEAM[team].light;
-  paintCtx.lineWidth = Math.max(2, r * 0.035);
-  paintCtx.beginPath();
-  paintCtx.ellipse(px - r * 0.05, py - r * 0.04, r * 0.60, r * 0.48, seed * 2.4, Math.PI * 1.08, Math.PI * 1.86);
-  paintCtx.stroke();
-  paintCtx.globalAlpha = 0.8;
-  paintCtx.fillStyle = color;
+  ctx.closePath();
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  ctx.globalAlpha = .34;
+  ctx.strokeStyle = TEAM[team].light;
+  ctx.lineWidth = Math.max(2, r * .035);
+  ctx.beginPath();
+  ctx.ellipse(px-r*.05, py-r*.04, r*.60, r*.48, seed*2.4, Math.PI*1.08, Math.PI*1.86);
+  ctx.stroke();
+
+  ctx.globalAlpha = .8;
+  ctx.fillStyle = color;
   for (let i = 0; i < 5; i++) {
-    const a = seed * 8 + i * 2.18;
-    const d = r * (0.62 + (i % 3) * 0.18);
-    const dot = r * (0.10 + (i % 2) * 0.055);
-    paintCtx.beginPath();
-    paintCtx.ellipse(px + Math.cos(a) * d, py + Math.sin(a) * d, dot * 1.2, dot * 0.76, a, 0, Math.PI * 2);
-    paintCtx.fill();
+    const a = seed*8 + i*2.18;
+    const d = r*(.62 + (i%3)*.18);
+    const dot = r*(.10 + (i%2)*.055);
+    ctx.beginPath();
+    ctx.ellipse(px+Math.cos(a)*d, py+Math.sin(a)*d, dot*1.2, dot*.76, a, 0, Math.PI*2);
+    ctx.fill();
   }
   for (let i = 0; i < 4; i++) {
-    const a = seed * 5.7 + i * 1.53;
-    const start = r * (0.52 + (i % 2) * 0.16);
-    const end = r * (0.92 + (i % 3) * 0.18);
-    paintCtx.strokeStyle = color;
-    paintCtx.globalAlpha = 0.72;
-    paintCtx.lineWidth = Math.max(2, r * (0.035 + (i % 2) * 0.012));
-    paintCtx.lineCap = 'round';
-    paintCtx.beginPath();
-    paintCtx.moveTo(px + Math.cos(a) * start, py + Math.sin(a) * start);
-    paintCtx.quadraticCurveTo(
-      px + Math.cos(a + 0.12) * (start + end) * 0.52,
-      py + Math.sin(a + 0.12) * (start + end) * 0.52,
-      px + Math.cos(a) * end,
-      py + Math.sin(a) * end
+    const a = seed*5.7 + i*1.53;
+    const start = r*(.52 + (i%2)*.16);
+    const end = r*(.92 + (i%3)*.18);
+    ctx.strokeStyle = color;
+    ctx.globalAlpha = .72;
+    ctx.lineWidth = Math.max(2, r*(.035 + (i%2)*.012));
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(px+Math.cos(a)*start, py+Math.sin(a)*start);
+    ctx.quadraticCurveTo(
+      px+Math.cos(a+.12)*(start+end)*.52,
+      py+Math.sin(a+.12)*(start+end)*.52,
+      px+Math.cos(a)*end,
+      py+Math.sin(a)*end
     );
-    paintCtx.stroke();
+    ctx.stroke();
   }
-  paintCtx.restore();
-  stampWetSurface(px, py, r, points, seed);
+  ctx.restore();
+}
+
+function drawSplat(position, team, radius, seed = Math.random()) {
+  const px = ((position.x + HALF) / ARENA) * paintCanvas.width;
+  const py = ((HALF - position.z) / ARENA) * paintCanvas.height;
+  const r = radius * (paintCanvas.width / ARENA);
+  drawInkMark(paintCtx, team, px, py, r, seed);
+  drawInkMark(raisedPaintCtx, team, px, py, r, seed);
+  stampWetSurface(px, py, r, (() => {
+    const points = [];
+    for (let i = 0; i < 13; i++) {
+      const angle = i / 13 * Math.PI * 2;
+      const wobble = 0.72 + 0.28 * Math.abs(Math.sin(seed * 17 + i * 2.41));
+      const stretch = 0.83 + 0.30 * Math.sin(seed * 4 + i * 1.7);
+      points.push([px + Math.cos(angle) * r * wobble * stretch, py + Math.sin(angle) * r * wobble]);
+    }
+    return points;
+  })(), seed);
   paintTexture.needsUpdate = true;
+  raisedPaintTexture.needsUpdate = true;
 }
 let scoreCache = { blue: -1, orange: -1 };
 function updateScore() {
@@ -1631,7 +1716,7 @@ function addPersistentWetInk(position, team, radius, seed) {
   const index = wetPoolCounts[team];
   if (index >= 128) return;
   const floorY = groundHeight(position.x, position.z);
-  wetPoolTransform.position.set(position.x, floorY > 0.5 ? floorY + 0.001 : -0.043, position.z);
+  wetPoolTransform.position.set(position.x, floorY > 0.02 ? floorY + 0.014 : -0.031, position.z);
   const sx = radius * (0.82 + 0.22 * Math.sin(seed * 8));
   const sz = radius * (0.68 + 0.23 * Math.cos(seed * 5));
   wetPoolTransform.scale.set(sx, 1, sz);
@@ -1647,7 +1732,7 @@ const projectiles = [];
 const particles = [];
 function spawnSplash(position, team) {
   const level = groundHeight(position.x, position.z);
-  const ground = level > 0.5 ? level + 0.012 : -0.035;
+  const ground = level > 0.02 ? level + 0.014 : -0.031;
   const puddleMaterial = splashMaterials[team].clone();
   const puddle = new THREE.Mesh(splashPuddleGeometry, puddleMaterial);
   puddle.rotation.x = -Math.PI / 2;
@@ -1954,6 +2039,22 @@ function buildRoster(element, team) {
 buildRoster(ui.blueRoster, blueTeam);
 buildRoster(ui.orangeRoster, orangeTeam);
 
+function buildIntroRoster(element, team, isHome) {
+  element.innerHTML = team.map((actor, index) => {
+    const label = actor.player ? 'YOU' : (isHome ? 'CREW ' : 'RIVAL ') + String(index + 1).padStart(2, '0');
+    const mark = actor.player ? 'YOU' : String(index + 1).padStart(2, '0');
+    const role = actor.player ? 'FIELD LEAD' : (index % 2 ? 'SUPPORT' : 'FRONTLINE');
+    return '<div class="intro-operator" style="--slot:' + index + '">' +
+      '<span class="operator-mark">' + mark + '</span>' +
+      '<strong class="operator-name">' + label + '</strong>' +
+      '<small class="operator-role">' + role + '</small>' +
+      '</div>';
+  }).join('');
+}
+buildIntroRoster(ui.introBlueRoster, blueTeam, true);
+buildIntroRoster(ui.introOrangeRoster, orangeTeam, false);
+
+
 const raycaster = new THREE.Raycaster();
 const centerScreen = new THREE.Vector2(0, 0);
 const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
@@ -1962,6 +2063,9 @@ const clock = new THREE.Clock();
 let yaw = 0;
 let pitch = 0.20;
 let gameStarted = false;
+let introActive = false;
+let introElapsed = 0;
+let introSavedActors = [];
 let paused = false;
 let ended = false;
 let soundOn = false;
@@ -2509,6 +2613,8 @@ function resetPaint() {
   }
   drawArenaBaseArtwork(paintCtx);
   paintTexture.needsUpdate = true;
+  raisedPaintCtx.clearRect(0, 0, 1024, 1024);
+  raisedPaintTexture.needsUpdate = true;
   paintRoughnessCtx.fillStyle = '#f4f4f4';
   paintRoughnessCtx.fillRect(0, 0, 1024, 1024);
   paintHeightCtx.fillStyle = '#080808';
@@ -2575,14 +2681,104 @@ function resetMatch() {
   startGame();
 }
 function startGame() {
-  gameStarted = true;
+  if (introActive || gameStarted) return;
+  gameStarted = false;
+  introActive = true;
+  introElapsed = 0;
   paused = false;
   ended = false;
+  fireHeld = false;
   ui.start.classList.add('hidden');
+  ui.intro.classList.remove('hidden');
   ui.pause.classList.add('hidden');
   ui.result.classList.add('hidden');
-  if (!isTouch && renderer.domElement.requestPointerLock) renderer.domElement.requestPointerLock();
-  showToast('BREAKWATER  /  TURF CONTROL');
+
+  // Stage the actual 3D crew in two facing lines for the briefing camera.
+  // Their real spawn locations are restored when the countdown reaches zero.
+  introSavedActors = actors.map((actor) => ({
+    actor,
+    position: actor.position.clone(),
+    rotationY: actor.group.rotation.y
+  }));
+  const lineupX = [-8, -4, 0, 4, 8];
+  blueTeam.forEach((actor, index) => {
+    actor.position.set(lineupX[index], 0, 8.4);
+    actor.velocity.set(0, 0, 0);
+    actor.group.position.copy(actor.position);
+    actor.group.rotation.set(0, 0, 0);
+    actor.group.visible = true;
+    resetCharacterPose(actor);
+  });
+  orangeTeam.forEach((actor, index) => {
+    actor.position.set(lineupX[index], 0, -8.4);
+    actor.velocity.set(0, 0, 0);
+    actor.group.position.copy(actor.position);
+    actor.group.rotation.set(0, Math.PI, 0);
+    actor.group.visible = true;
+    resetCharacterPose(actor);
+  });
+
+  ui.introPhase.textContent = 'SQUAD ASSEMBLY';
+  ui.introCount.textContent = 'READY';
+  ui.introStatus.textContent = 'YOUR CREW IS ENTERING THE FIELD';
+  if (!isTouch && renderer.domElement.requestPointerLock) {
+    try {
+      const request = renderer.domElement.requestPointerLock();
+      if (request && typeof request.catch === 'function') request.catch(() => {});
+    } catch { /* Mouse lock is optional; keyboard/mouse can still start the match. */ }
+  }
+}
+
+function updateMatchIntro(delta) {
+  if (!introActive) return;
+  introElapsed += delta;
+
+  for (const actor of actors) {
+    actor.walkPhase += delta * 1.2;
+    animateActor(actor, 0, delta);
+  }
+
+  if (introElapsed < 1.25) {
+    ui.introPhase.textContent = 'YOUR CREW';
+    ui.introStatus.textContent = 'CYAN DIVISION  /  HOLD THE LINE';
+    ui.introCount.textContent = '5 OPERATORS';
+  } else if (introElapsed < 2.35) {
+    ui.introPhase.textContent = 'RIVAL CREW';
+    ui.introStatus.textContent = 'CORAL DIVISION  /  CONTEST THE YARD';
+    ui.introCount.textContent = '5 OPERATORS';
+  } else {
+    ui.introPhase.textContent = 'MATCH STARTING';
+    ui.introStatus.textContent = 'PREPARE TO DEPLOY';
+    const remaining = Math.ceil(5.35 - introElapsed);
+    ui.introCount.textContent = remaining > 0 ? String(Math.min(3, remaining)) : 'GO';
+  }
+
+  if (introElapsed >= 5.35) {
+    for (const saved of introSavedActors) {
+      const actor = saved.actor;
+      actor.position.copy(saved.position);
+      actor.velocity.set(0, 0, 0);
+      actor.group.position.copy(actor.position);
+      actor.group.rotation.set(0, saved.rotationY, 0);
+      actor.group.visible = true;
+      resetCharacterPose(actor);
+      updateActorShadow(actor);
+    }
+    introSavedActors = [];
+    introActive = false;
+    ui.intro.classList.add('hidden');
+    gameStarted = true;
+    showToast('3  ·  2  ·  1  ·  FIGHT');
+  }
+}
+
+function updateIntroCamera(delta) {
+  const drift = Math.sin(introElapsed * 0.72) * 2.7;
+  const desired = new THREE.Vector3(drift, 8.2 + Math.sin(introElapsed * 0.55) * 0.25, 25.5);
+  camera.position.lerp(desired, 1 - Math.exp(-2.2 * delta));
+  camera.lookAt(0, 1.05, -0.4);
+  camera.fov = THREE.MathUtils.damp(camera.fov, 54, 2.2, delta);
+  camera.updateProjectionMatrix();
 }
 function pauseGame() {
   if (!gameStarted || ended) return;
@@ -2613,9 +2809,9 @@ document.addEventListener('pointerlockchange', () => {
   const locked = document.pointerLockElement === renderer.domElement;
   if (locked) {
     gamePointerLockActive = true;
-  } else if (gamePointerLockActive && gameStarted && !isTouch) {
+  } else if (gamePointerLockActive) {
     gamePointerLockActive = false;
-    pauseGame();
+    if (gameStarted && !isTouch) pauseGame();
   }
 });
 document.addEventListener('mousemove', (event) => {
@@ -2714,6 +2910,9 @@ $('flow-button').addEventListener('pointerdown', (event) => {
 function animate() {
   requestAnimationFrame(animate);
   const delta = Math.min(clock.getDelta(), 0.04);
+  if (introActive) {
+    updateMatchIntro(delta);
+  }
   if (gameStarted && !paused && !ended) {
     timeLeft -= delta;
     ui.timer.textContent = formatTime(timeLeft);
@@ -2736,7 +2935,8 @@ function animate() {
     hitTimer -= delta;
     if (hitTimer <= 0) ui.hit.classList.remove('visible');
   }
-  updateCamera(delta);
+  if (introActive) updateIntroCamera(delta);
+  else updateCamera(delta);
   renderer.render(scene, camera);
 }
 function onResize() {
