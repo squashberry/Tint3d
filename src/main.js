@@ -1337,7 +1337,11 @@ function moveOnGround(actor, dx, dz, radius = 0.46) {
   const zFeet = groundHeight(actor.position.x, nextZ);
   if (!isBlockedAt(actor.position.x, nextZ, Math.max(actor.position.y, zFeet), radius)) actor.position.z = nextZ;
   else if (actor.velocity) actor.velocity.z = 0;
-  actor.position.y = groundHeight(actor.position.x, actor.position.z);
+  const surfaceY = groundHeight(actor.position.x, actor.position.z);
+  // Preserve vertical momentum while airborne. Snapping to the floor here
+  // cancelled almost every jump after its first frame.
+  if (!actor.player || actor.grounded) actor.position.y = surfaceY;
+  else actor.position.y = Math.max(actor.position.y, surfaceY);
 }
 
 
@@ -2251,6 +2255,8 @@ function respawnActor(actor) {
   actor.position.set(side * (3.5 + actor.variation * 1.15), 0, sign * (14.0 + Math.random() * 2.2));
   actor.position.y = groundHeight(actor.position.x, actor.position.z);
   actor.velocity.set(0, 0, 0);
+  actor.verticalVelocity = 0;
+  actor.grounded = true;
   actor.health = 100;
   actor.ink = 100;
   actor.respawn = 0;
