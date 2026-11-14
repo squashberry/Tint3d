@@ -1349,8 +1349,23 @@ function resetPaint() {
     wall.ctx.clearRect(0, 0, wall.canvas.width, wall.canvas.height);
     wall.texture.needsUpdate = true;
   }
-  paintCtx.fillStyle = '#263542';
+  paintCtx.fillStyle = '#35464d';
   paintCtx.fillRect(0, 0, 1024, 1024);
+  const concreteWash = paintCtx.createLinearGradient(0, 0, 1024, 1024);
+  concreteWash.addColorStop(0, 'rgba(215,230,218,.12)');
+  concreteWash.addColorStop(.52, 'rgba(104,139,139,.025)');
+  concreteWash.addColorStop(1, 'rgba(8,24,31,.26)');
+  paintCtx.fillStyle = concreteWash;
+  paintCtx.fillRect(0, 0, 1024, 1024);
+  for (let i = 0; i < 1100; i++) {
+    const x = Math.random() * 1024;
+    const y = Math.random() * 1024;
+    const radius = Math.random() * 1.8 + 0.35;
+    paintCtx.fillStyle = Math.random() > .5 ? 'rgba(190,214,218,.045)' : 'rgba(0,0,0,.08)';
+    paintCtx.beginPath();
+    paintCtx.arc(x, y, radius, 0, Math.PI * 2);
+    paintCtx.fill();
+  }
   paintCtx.strokeStyle = 'rgba(211,230,229,.10)';
   paintCtx.lineWidth = 3;
   for (let i = 1; i < 8; i++) {
@@ -1361,6 +1376,31 @@ function resetPaint() {
   paintCtx.strokeStyle = 'rgba(151,183,188,.24)';
   paintCtx.lineWidth = 5;
   paintCtx.strokeRect(22, 22, 980, 980);
+  paintCtx.save();
+  paintCtx.globalAlpha = .28;
+  paintCtx.strokeStyle = '#d8e5d8';
+  paintCtx.lineWidth = 5;
+  paintCtx.setLineDash([18, 16]);
+  paintCtx.beginPath();
+  paintCtx.arc(512, 512, 185, 0, Math.PI * 2);
+  paintCtx.stroke();
+  paintCtx.setLineDash([]);
+  paintCtx.fillStyle = '#dce7d9';
+  paintCtx.font = '900 58px sans-serif';
+  paintCtx.textAlign = 'center';
+  paintCtx.fillText('BREAKWATER', 512, 470);
+  paintCtx.font = '800 19px sans-serif';
+  paintCtx.fillText('TINT3D FIELD SERIES  /  001', 512, 508);
+  paintCtx.font = '900 34px sans-serif';
+  paintCtx.fillText('T3', 512, 558);
+  paintCtx.globalAlpha = .21;
+  paintCtx.fillStyle = '#ffba74';
+  paintCtx.fillRect(105, 130, 814, 11);
+  paintCtx.fillRect(105, 883, 814, 11);
+  paintCtx.restore();
+  paintCtx.fillStyle = 'rgba(221,236,225,.18)';
+  paintCtx.fillRect(492, 80, 40, 864);
+  paintCtx.fillRect(80, 492, 864, 40);
   paintTexture.needsUpdate = true;
   seedArea(BLUE, 0, 15.5);
   seedArea(ORANGE, 0, -15.5);
