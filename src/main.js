@@ -119,16 +119,29 @@ function block(x, y, z, sx, sy, sz, color, options = {}) {
   const item = mesh(shared.box, mat('world-' + color, color, options.roughness ?? 0.74, options.metalness ?? 0.12, options.emissive ?? 0), scene, x, y, z);
   item.scale.set(sx, sy, sz);
   if (options.rotation) item.rotation.set(options.rotation.x || 0, options.rotation.y || 0, options.rotation.z || 0);
-  if (options.solid) solidBounds.push({
-    x, z, halfX: sx / 2, halfZ: sz / 2,
-    minY: y - sy / 2, maxY: y + sy / 2
-  });
+  if (options.solid) {
+    const rotation = new THREE.Quaternion().setFromEuler(new THREE.Euler(
+      options.rotation?.x || 0, options.rotation?.y || 0, options.rotation?.z || 0
+    ));
+    const bounds = { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity, minZ: Infinity, maxZ: -Infinity };
+    for (const ix of [-1, 1]) for (const iy of [-1, 1]) for (const iz of [-1, 1]) {
+      const corner = new THREE.Vector3(ix * sx * 0.5, iy * sy * 0.5, iz * sz * 0.5).applyQuaternion(rotation);
+      bounds.minX = Math.min(bounds.minX, x + corner.x);
+      bounds.maxX = Math.max(bounds.maxX, x + corner.x);
+      bounds.minY = Math.min(bounds.minY, y + corner.y);
+      bounds.maxY = Math.max(bounds.maxY, y + corner.y);
+      bounds.minZ = Math.min(bounds.minZ, z + corner.z);
+      bounds.maxZ = Math.max(bounds.maxZ, z + corner.z);
+    }
+    solidBounds.push(bounds);
+  }
   return item;
 }
-function cylinder(x, y, z, radius, height, color, rotationZ = 0) {
+function cylinder(x, y, z, radius, height, color, rotationZ = 0, solid = false) {
   const item = mesh(shared.cylinder, mat('cyl-' + color, color, 0.63, 0.36), scene, x, y, z);
   item.scale.set(radius, height, radius);
   item.rotation.z = rotationZ;
+  if (solid) solidBounds.push({ shape: 'circle', x, z, radius, minY: y - height / 2, maxY: y + height / 2 });
   return item;
 }
 
@@ -702,7 +715,7 @@ for (let z = -6.5; z <= 6.5; z += 1) {
   block(2.7, 0.12, z, 0.11, 0.06, 0.28, 0xffc06b);
 }
 for (const x of [-5.25, 5.25]) {
-  block(x, 1.48, 0, 0.18, 0.7, 5.8, 0x263a43);
+  block(x, 1.48, 0, 0.18, 0.7, 5.8, 0x263a43, { solid: true });
   block(x, 1.85, 0, 0.20, 0.08, 5.8, 0x20b6c7, { emissive: 0x0a5365 });
 }
 
@@ -716,12 +729,12 @@ const coverPieces = [
 for (const c of coverPieces) block(...c.slice(0, 7), { solid: true });
 for (let i = 0; i < 7; i++) {
   const x = -17 + i * 5.65;
-  cylinder(x, 0.58, -17.3, 0.22, 1.16, i % 2 ? 0x20b9ca : 0xff855e);
-  cylinder(x, 0.58, 17.3, 0.22, 1.16, i % 2 ? 0xff855e : 0x20b9ca);
+  cylinder(x, 0.58, -17.3, 0.22, 1.16, i % 2 ? 0x20b9ca : 0xff855e, 0, true);
+  cylinder(x, 0.58, 17.3, 0.22, 1.16, i % 2 ? 0xff855e : 0x20b9ca, 0, true);
 }
 for (const z of [-15.5, 15.5]) {
-  block(-19.1, 2.1, z, 0.65, 4.2, 0.65, 0x263e4b);
-  block(19.1, 2.1, z, 0.65, 4.2, 0.65, 0x263e4b);
+  block(-19.1, 2.1, z, 0.65, 4.2, 0.65, 0x263e4b, { solid: true });
+  block(19.1, 2.1, z, 0.65, 4.2, 0.65, 0x263e4b, { solid: true });
   block(-19.1, 4.25, z, 1.2, 0.14, 1.2, 0x20d8e9, { emissive: 0x087e9a });
   block(19.1, 4.25, z, 1.2, 0.14, 1.2, 0xff7652, { emissive: 0x8d3226 });
 }
@@ -1319,27 +1332,69 @@ function paintSurfaceHeight(x, z) {
 }
 function isBlockedAt(x, z, feetY, radius = 0.46) {
   for (const box of solidBounds) {
-    if (x < box.x - box.halfX - radius || x > box.x + box.halfX + radius) continue;
-    if (z < box.z - box.halfZ - radius || z > box.z + box.halfZ + radius) continue;
     if (feetY >= box.maxY - 0.13) continue;
     if (feetY + 1.75 <= box.minY) continue;
-    return true;
+    let closestX;
+    let closestZ;
+    let reach = radius;
+    if (box.shape === 'circle') {
+      closestX = box.x;
+      closestZ = box.z;
+      reach += box.radius;
+    } else {
+      if (x < box.minX - radius || x > box.maxX + radius) continue;
+      if (z < box.minZ - radius || z > box.maxZ + radius) continue;
+      closestX = clamp(x, box.minX, box.maxX);
+      closestZ = clamp(z, box.minZ, box.maxZ);
+    }
+    const dx = x - closestX;
+    const dz = z - closestZ;
+    if (dx * dx + dz * dz < reach * reach) return true;
   }
   return false;
 }
+function actorSurfaceHeight(actor, x, z) {
+  let surface = groundHeight(x, z);
+  const feet = actor.position.y;
+  for (const box of solidBounds) {
+    if (box.maxY <= surface + 0.035 || feet < box.maxY - 0.16) continue;
+    let onTop = false;
+    if (box.shape === 'circle') {
+      const dx = x - box.x;
+      const dz = z - box.z;
+      onTop = dx * dx + dz * dz <= box.radius * box.radius * 0.78;
+    } else {
+      onTop = x > box.minX + 0.05 && x < box.maxX - 0.05 &&
+        z > box.minZ + 0.05 && z < box.maxZ - 0.05;
+    }
+    if (onTop) surface = Math.max(surface, box.maxY);
+  }
+  return surface;
+}
 function moveOnGround(actor, dx, dz, radius = 0.46) {
   const limit = actor.player ? 18.7 : 18.2;
-  const nextX = clamp(actor.position.x + dx, -limit, limit);
-  const xFeet = groundHeight(nextX, actor.position.z);
-  if (!isBlockedAt(nextX, actor.position.z, Math.max(actor.position.y, xFeet), radius)) actor.position.x = nextX;
-  else if (actor.velocity) actor.velocity.x = 0;
-  const nextZ = clamp(actor.position.z + dz, -limit, limit);
-  const zFeet = groundHeight(actor.position.x, nextZ);
-  if (!isBlockedAt(actor.position.x, nextZ, Math.max(actor.position.y, zFeet), radius)) actor.position.z = nextZ;
-  else if (actor.velocity) actor.velocity.z = 0;
-  const surfaceY = groundHeight(actor.position.x, actor.position.z);
-  // Preserve vertical momentum while airborne. Snapping to the floor here
-  // cancelled almost every jump after its first frame.
+  const distance = Math.max(Math.abs(dx), Math.abs(dz));
+  const steps = Math.max(1, Math.ceil(distance / Math.max(0.12, radius * 0.42)));
+  const stepX = dx / steps;
+  const stepZ = dz / steps;
+  for (let step = 0; step < steps; step++) {
+    const nextX = clamp(actor.position.x + stepX, -limit, limit);
+    const xFeet = actorSurfaceHeight(actor, nextX, actor.position.z);
+    if (!isBlockedAt(nextX, actor.position.z, Math.max(actor.position.y, xFeet), radius)) {
+      actor.position.x = nextX;
+    } else if (actor.velocity) {
+      actor.velocity.x = 0;
+    }
+    const nextZ = clamp(actor.position.z + stepZ, -limit, limit);
+    const zFeet = actorSurfaceHeight(actor, actor.position.x, nextZ);
+    if (!isBlockedAt(actor.position.x, nextZ, Math.max(actor.position.y, zFeet), radius)) {
+      actor.position.z = nextZ;
+    } else if (actor.velocity) {
+      actor.velocity.z = 0;
+    }
+  }
+  const surfaceY = actorSurfaceHeight(actor, actor.position.x, actor.position.z);
+  // Keep air momentum, but settle onto the highest reachable solid surface.
   if (!actor.player || actor.grounded) actor.position.y = surfaceY;
   else actor.position.y = Math.max(actor.position.y, surfaceY);
 }
@@ -1649,8 +1704,9 @@ const shadowMaterial = new THREE.MeshBasicMaterial({
 function updateActorShadow(actor) {
   if (!actor.shadow) return;
   actor.shadow.visible = actor.group.visible;
-  actor.shadow.position.set(actor.position.x, groundHeight(actor.position.x, actor.position.z) + 0.025, actor.position.z);
-  const height = Math.max(0, actor.position.y - groundHeight(actor.position.x, actor.position.z));
+  const floorY = actorSurfaceHeight(actor, actor.position.x, actor.position.z);
+  actor.shadow.position.set(actor.position.x, floorY + 0.025, actor.position.z);
+  const height = Math.max(0, actor.position.y - floorY);
   actor.shadow.scale.set(1.35 + height * 0.35, 0.83 + height * 0.22, 1);
   actor.shadow.material.opacity = clamp(0.72 - height * 0.22, 0.26, 0.72);
 }
@@ -1750,8 +1806,10 @@ function addPersistentWetInk(position, team, radius, seed) {
 }
 const projectiles = [];
 const particles = [];
-function spawnSplash(position, team) {
-  const ground = paintSurfaceHeight(position.x, position.z) + 0.003;
+function spawnSplash(position, team, groundOverride = null) {
+  const ground = Number.isFinite(groundOverride)
+    ? groundOverride + 0.003
+    : paintSurfaceHeight(position.x, position.z) + 0.003;
   const puddleMaterial = splashMaterials[team].clone();
   const puddle = new THREE.Mesh(splashPuddleGeometry, puddleMaterial);
   puddle.rotation.x = -Math.PI / 2;
@@ -1784,6 +1842,34 @@ function spawnSplash(position, team) {
         Math.cos(angle) * (1.55 + Math.random() * 2.6),
         1.45 + Math.random() * 2.3,
         Math.sin(angle) * (1.55 + Math.random() * 2.6)
+      )
+    });
+  }
+}
+function spawnMotionSpray(actor, count = 2, strength = 0.7) {
+  if (particles.length > 118) return;
+  const surface = actorSurfaceHeight(actor, actor.position.x, actor.position.z);
+  const movement = actor.velocity.clone().setY(0);
+  if (movement.lengthSq() < 0.04) return;
+  movement.normalize();
+  const side = new THREE.Vector3(-movement.z, 0, movement.x);
+  for (let i = 0; i < count; i++) {
+    const lateral = (Math.random() - 0.5) * 0.48;
+    const position = new THREE.Vector3(
+      actor.position.x - movement.x * (0.18 + Math.random() * 0.22) + side.x * lateral,
+      surface + 0.035 + Math.random() * 0.08,
+      actor.position.z - movement.z * (0.18 + Math.random() * 0.22) + side.z * lateral
+    );
+    const drop = mesh(shared.smallSphere, projectileMaterials[actor.team], scene, position.x, position.y, position.z);
+    drop.layers.disable(1);
+    const size = 0.035 + Math.random() * 0.045;
+    drop.scale.set(size * 1.35, size, size * 1.15);
+    particles.push({
+      mesh: drop, life: 0.22 + Math.random() * 0.16, maxLife: 0.38,
+      velocity: new THREE.Vector3(
+        -movement.x * (0.25 + Math.random() * strength) + side.x * lateral * 2.8,
+        0.30 + Math.random() * 0.72 * strength,
+        -movement.z * (0.25 + Math.random() * strength) + side.z * lateral * 2.8
       )
     });
   }
@@ -1979,9 +2065,12 @@ function makeCharacter(team, variation = 0) {
     legs.push({ hip, knee });
   }
 
+  group.updateMatrixWorld(true);
+  group.attach(weapon);
   group.userData.character = {
     torsoPivot, head, leftArm, rightArm, legs, weapon, backMount, flash,
-    defaultLeftArm: 0.60, defaultRightArm: 0.38
+    defaultLeftArm: 0.60, defaultRightArm: 0.38,
+    weaponHolstered: false, weaponBlend: 1, weaponTransition: null
   };
   group.userData.weapon = weapon;
   group.userData.flash = flash;
@@ -1993,25 +2082,50 @@ function makeCharacter(team, variation = 0) {
   return group;
 }
 
-function setWeaponHolstered(actor, holstered) {
+function setWeaponHolstered(actor, holstered, instant = false) {
   const c = actor.group.userData.character;
-  if (!c || c.weaponHolstered === holstered) return;
-  if (holstered) {
-    c.backMount.add(c.weapon);
-    c.weapon.position.set(0.02, 0.015, 0.015);
-    c.weapon.rotation.set(0, Math.PI, 0.34);
-  } else {
-    c.rightArm.elbow.add(c.weapon);
-    c.weapon.position.set(0.025, -0.28, -0.17);
-    c.weapon.rotation.set(0, 0, 0);
-  }
+  if (!c) return;
+  const target = holstered ? 0 : 1;
+  if (!instant && c.weaponHolstered === holstered &&
+      (!c.weaponTransition || c.weaponTransition.to === target)) return;
   c.weaponHolstered = holstered;
+  if (instant) {
+    c.weaponBlend = target;
+    c.weaponTransition = null;
+    return;
+  }
+  c.weaponTransition = {
+    from: c.weaponBlend ?? 1,
+    to: target,
+    elapsed: 0,
+    duration: holstered ? 0.30 : 0.36
+  };
+}
+function weaponAnchorPose(actor, holstered) {
+  const c = actor.group.userData.character;
+  const parent = holstered ? c.backMount : c.rightArm.elbow;
+  const localPosition = holstered
+    ? new THREE.Vector3(0.02, 0.015, 0.015)
+    : new THREE.Vector3(0.025, -0.28, -0.17);
+  const localEuler = holstered
+    ? new THREE.Euler(0, Math.PI, 0.34)
+    : new THREE.Euler(actor.player ? clamp((0.20 - pitch) * 0.65, -0.12, 0.82) : -0.05, 0, 0);
+  const localQuaternion = new THREE.Quaternion().setFromEuler(localEuler);
+  parent.updateWorldMatrix(true, false);
+  actor.group.updateWorldMatrix(true, false);
+  const worldPosition = localPosition.applyMatrix4(parent.matrixWorld);
+  const worldQuaternion = parent.getWorldQuaternion(new THREE.Quaternion()).multiply(localQuaternion);
+  const rootQuaternion = actor.group.getWorldQuaternion(new THREE.Quaternion()).invert();
+  return {
+    position: actor.group.worldToLocal(worldPosition),
+    quaternion: rootQuaternion.multiply(worldQuaternion)
+  };
 }
 
 function resetCharacterPose(actor) {
   const c = actor.group.userData.character;
   if (!c) return;
-  setWeaponHolstered(actor, false);
+  setWeaponHolstered(actor, false, true);
   c.torsoPivot.position.set(0, 0.80, 0);
   c.torsoPivot.rotation.set(0, 0, 0);
   c.torsoPivot.scale.set(1, 1, 1);
@@ -2024,8 +2138,6 @@ function resetCharacterPose(actor) {
     leg.hip.rotation.set(0, 0, 0);
     leg.knee.rotation.set(0, 0, 0);
   }
-  c.weapon.position.set(0.025, -0.28, -0.17);
-  c.weapon.rotation.set(0, 0, 0);
   actor.ragdollState = null;
   actor.hitTimer = 0;
   actor.landImpact = 0;
@@ -2042,7 +2154,7 @@ function createActor(team, variation, x, z, playerControlled = false) {
     velocity: new THREE.Vector3(), recoil: 0, hitTimer: 0, landImpact: 0, ragdollState: null,
     sprinting: false, sliding: false, slideTimer: 0, slideCooldown: 0,
     slideSpeed: 0, slideDirection: new THREE.Vector3(),
-    jumpBuffer: 0, coyoteTimer: 0.12, jumpHoldTimer: 0
+    jumpBuffer: 0, coyoteTimer: 0.12, jumpHoldTimer: 0, effectTimer: 0
   };
   if (playerControlled) group.traverse((child) => { if (child.isMesh) child.layers.disable(1); });
   const shadow = new THREE.Mesh(shadowGeometry, shadowMaterial);
@@ -2333,11 +2445,16 @@ function updateProjectiles(delta) {
       }
     }
     const floorY = paintSurfaceHeight(pos.x, pos.z);
-    const hitWorld = solidBounds.some((box) =>
-      pos.x > box.x - box.halfX && pos.x < box.x + box.halfX &&
-      pos.z > box.z - box.halfZ && pos.z < box.z + box.halfZ &&
-      pos.y > box.minY && pos.y < box.maxY
-    );
+    const hitWorld = solidBounds.some((box) => {
+      if (pos.y <= box.minY || pos.y >= box.maxY) return false;
+      if (box.shape === 'circle') {
+        const dx = pos.x - box.x;
+        const dz = pos.z - box.z;
+        return dx * dx + dz * dz < box.radius * box.radius;
+      }
+      return pos.x > box.minX && pos.x < box.maxX &&
+        pos.z > box.minZ && pos.z < box.maxZ;
+    });
     if (hitActor || hitWorld || pos.y <= floorY + 0.12 || Math.abs(pos.x) > HALF || Math.abs(pos.z) > HALF || p.life <= 0) {
       if (!hitActor && Math.abs(pos.x) < HALF && Math.abs(pos.z) < HALF) {
         const wallFace = hitWorld ? paintableWalls.find((wall) =>
@@ -2492,7 +2609,7 @@ function updatePlayer(delta) {
 
   moveOnGround(player, player.velocity.x * delta, player.velocity.z * delta, player.sliding ? 0.40 : 0.48);
 
-  const baseY = groundHeight(player.position.x, player.position.z);
+  const baseY = actorSurfaceHeight(player, player.position.x, player.position.z);
   if (!player.grounded) {
     player.jumpHoldTimer += delta;
     const gravity = player.verticalVelocity > 0
@@ -2503,6 +2620,7 @@ function updatePlayer(delta) {
     if (player.position.y <= baseY) {
       if (player.verticalVelocity < -2.8) {
         player.landImpact = clamp(Math.abs(player.verticalVelocity) * 0.075, 0.18, 1);
+        spawnSplash(new THREE.Vector3(player.position.x, baseY, player.position.z), BLUE, baseY);
       }
       player.position.y = baseY;
       player.verticalVelocity = 0;
@@ -2527,6 +2645,11 @@ function updatePlayer(delta) {
   player.invulnerable = Math.max(0, player.invulnerable - delta);
   player.walkPhase += delta * (player.sliding ? 15 : (player.sprinting ? 14 : (moving ? 10 : 2)));
   animateActor(player, player.sliding ? 1.25 : (player.sprinting ? 1 : move.length()), delta);
+  player.effectTimer -= delta;
+  if (moving && player.grounded && player.effectTimer <= 0) {
+    spawnMotionSpray(player, player.sliding ? 5 : (player.sprinting ? 3 : 1), player.sliding ? 1.35 : 0.75);
+    player.effectTimer = player.sliding ? 0.065 : (player.sprinting ? 0.11 : 0.24);
+  }
 
   if (moving && player.grounded && !player.sliding) {
     paintPlayerTrail(player.position);
@@ -2539,6 +2662,18 @@ function updatePlayer(delta) {
 function animateActor(actor, moving, delta = 0.016) {
   const c = actor.group.userData.character;
   if (!c || actor.ragdollState) return;
+  if (c.weaponTransition) {
+    const transition = c.weaponTransition;
+    transition.elapsed += delta;
+    const progress = clamp(transition.elapsed / transition.duration, 0, 1);
+    const eased = progress * progress * (3 - 2 * progress);
+    c.weaponBlend = transition.from + (transition.to - transition.from) * eased;
+    if (progress >= 1) {
+      c.weaponBlend = transition.to;
+      c.weaponTransition = null;
+    }
+  }
+  const weaponDraw = c.weaponTransition ? Math.sin(c.weaponBlend * Math.PI) : 0;
   const t = actor.walkPhase || 0;
   const speed = clamp(moving, 0, 1);
   const running = speed > 0.05;
@@ -2565,17 +2700,18 @@ function animateActor(actor, moving, delta = 0.016) {
   c.head.rotation.z = Math.sin(t * 0.55) * 0.025 - hitFactor * 0.18;
 
   c.leftArm.shoulder.rotation.x = c.defaultLeftArm - stride * 0.34 - air * 0.90 + shooting * 0.10 + (sliding ? -0.55 : 0);
-  c.rightArm.shoulder.rotation.x = c.defaultRightArm + stride * 0.30 - air * 0.55 - shooting * 0.22 + (sliding ? -0.28 : 0);
+  c.rightArm.shoulder.rotation.x = c.defaultRightArm + stride * 0.30 - air * 0.55 - shooting * 0.22 + (sliding ? -0.28 : 0) - weaponDraw * 0.78;
   c.leftArm.shoulder.rotation.z = -0.035 + Math.sin(t * 0.9) * 0.035 + hitFactor * 0.42;
-  c.rightArm.shoulder.rotation.z = 0.025 - hitFactor * 0.58;
+  c.rightArm.shoulder.rotation.z = 0.025 - hitFactor * 0.58 + weaponDraw * 0.28;
   c.leftArm.elbow.rotation.x = -0.18 - Math.max(0, stride) * 0.22 - air * 0.55;
-  c.rightArm.elbow.rotation.x = -0.08 - shooting * 0.32 - Math.max(0, -stride) * 0.18;
+  c.rightArm.elbow.rotation.x = -0.08 - shooting * 0.32 - Math.max(0, -stride) * 0.18 - weaponDraw * 0.88;
   c.leftArm.elbow.rotation.z = -0.06;
-  c.rightArm.elbow.rotation.z = 0.045;
-  if (!c.weaponHolstered) {
-    c.weapon.position.z = -0.17 + (actor.recoil || 0) * 0.55;
-    c.weapon.rotation.x = actor.player ? clamp((0.20 - pitch) * 0.65, -0.12, 0.82) : -0.05;
-  }
+  c.rightArm.elbow.rotation.z = 0.045 - weaponDraw * 0.18;
+  const backPose = weaponAnchorPose(actor, true);
+  const handPose = weaponAnchorPose(actor, false);
+  c.weapon.position.copy(backPose.position).lerp(handPose.position, c.weaponBlend);
+  c.weapon.quaternion.copy(backPose.quaternion).slerp(handPose.quaternion, c.weaponBlend);
+  c.weapon.position.z += (actor.recoil || 0) * 0.55 * c.weaponBlend;
 
   for (let i = 0; i < 2; i++) {
     const leg = c.legs[i];
@@ -2676,6 +2812,11 @@ function updateBots(delta) {
       actor.group.rotation.y += turn * (1 - Math.exp(-14 * delta));
       actor.walkPhase += delta * 9;
       animateActor(actor, 1, delta);
+      actor.effectTimer -= delta;
+      if (actor.effectTimer <= 0) {
+        spawnMotionSpray(actor, 1, 0.42);
+        actor.effectTimer = 0.24;
+      }
     } else {
       animateActor(actor, 0, delta);
     }
