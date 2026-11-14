@@ -1507,7 +1507,10 @@ function paintAt(position, team, radius = 1.75, quiet = false) {
     }
   }
   updateScore();
-  if (!quiet) spawnSplash(position, team);
+  if (!quiet) {
+    addPersistentWetInk(position, team, Math.max(0.58, radius * 0.78), Math.random());
+    spawnSplash(position, team);
+  }
 }
 function seedArea(team, x, z) {
   for (let i = 0; i < 7; i++) {
@@ -1550,9 +1553,90 @@ const splashMaterials = {
   1: new THREE.MeshPhysicalMaterial({ color: TEAM[1].ink, roughness: 0.10, clearcoat: 1.0, clearcoatRoughness: 0.04, transparent: true, opacity: 0.88, side: THREE.DoubleSide, depthWrite: false }),
   2: new THREE.MeshPhysicalMaterial({ color: TEAM[2].ink, roughness: 0.10, clearcoat: 1.0, clearcoatRoughness: 0.04, transparent: true, opacity: 0.88, side: THREE.DoubleSide, depthWrite: false })
 };
+
 const splashPuddleGeometry = new THREE.CircleGeometry(0.44, 18);
-const projectiles = [];
-const particles = [];
+
+// Persistent wet-ink overlays are instanced per team: the game keeps the sheen
+// on the floor after the impact animation has finished without adding hundreds
+// of independent draw calls.
+function makeWetPoolGeometry() {
+  const sides = 24;
+  const positions = [0, 0.060, 0];
+  const uvs = [0.5, 0.5];
+  const indices = [];
+  const radii = [0.38, 0.73, 1.0];
+  const heights = [0.047, 0.028, 0.010];
+  for (let ring = 0; ring < radii.length; ring++) {
+    for (let i = 0; i < sides; i++) {
+      const a = (i / sides) * Math.PI * 2;
+      const wobble = 0.90 + 0.10 * Math.sin(i * 2.17 + ring * 0.8) + 0.035 * Math.cos(i * 4.1);
+      const radius = radii[ring] * wobble;
+      positions.push(Math.cos(a) * radius, heights[ring], Math.sin(a) * radius);
+      uvs.push(0.5 + Math.cos(a) * radius * 0.5, 0.5 + Math.sin(a) * radius * 0.5);
+    }
+  }
+  const ringStart = (ring) => 1 + ring * sides;
+  for (let i = 0; i < sides; i++) {
+    const next = (i + 1) % sides;
+    indices.push(0, ringStart(0) + i, ringStart(0) + next);
+    for (let ring = 0; ring < 2; ring++) {
+      const a = ringStart(ring) + i;
+      const b = ringStart(ring) + next;
+      const c = ringStart(ring + 1) + i;
+      const d = ringStart(ring + 1) + next;
+      indices.push(a, c, b, b, c, d);
+    }
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+const wetPoolGeometry = makeWetPoolGeometry();
+const wetPoolMaterials = {
+  1: new THREE.MeshPhysicalMaterial({
+    color: TEAM[1].ink, roughness: 0.095, metalness: 0.035,
+    clearcoat: 1, clearcoatRoughness: 0.025, sheen: 0.35, sheenRoughness: 0.12,
+    side: THREE.DoubleSide
+  }),
+  2: new THREE.MeshPhysicalMaterial({
+    color: TEAM[2].ink, roughness: 0.095, metalness: 0.035,
+    clearcoat: 1, clearcoatRoughness: 0.025, sheen: 0.35, sheenRoughness: 0.12,
+    side: THREE.DoubleSide
+  })
+};
+const wetPools = {
+  1: new THREE.InstancedMesh(wetPoolGeometry, wetPoolMaterials[1], 128),
+  2: new THREE.InstancedMesh(wetPoolGeometry, wetPoolMaterials[2], 128)
+};
+const wetPoolCounts = { 1: 0, 2: 0 };
+const wetPoolTransform = new THREE.Object3D();
+for (const team of [1, 2]) {
+  wetPools[team].count = 0;
+  wetPools[team].visible = false;
+  wetPools[team].frustumCulled = false;
+  wetPools[team].renderOrder = 2;
+  wetPools[team].castShadow = false;
+  wetPools[team].receiveShadow = false;
+  scene.add(wetPools[team]);
+}
+function addPersistentWetInk(position, team, radius, seed) {
+  const index = wetPoolCounts[team];
+  if (index >= 128) return;
+  wetPoolTransform.position.set(position.x, groundHeight(position.x, position.z) + 0.012, position.z);
+  const sx = radius * (0.82 + 0.22 * Math.sin(seed * 8));
+  const sz = radius * (0.68 + 0.23 * Math.cos(seed * 5));
+  wetPoolTransform.scale.set(sx, 1, sz);
+  wetPoolTransform.rotation.set(0, seed * Math.PI * 2, 0);
+  wetPoolTransform.updateMatrix();
+  wetPools[team].setMatrixAt(index, wetPoolTransform.matrix);
+  wetPoolCounts[team]++;
+  wetPools[team].count = wetPoolCounts[team];
+  wetPools[team].instanceMatrix.needsUpdate = true;
+  wetPools[team].visible = true;
+}
 function spawnSplash(position, team) {
   const ground = groundHeight(position.x, position.z) + 0.055;
   const puddleMaterial = splashMaterials[team].clone();
@@ -1619,238 +1703,201 @@ function updateParticles(delta) {
   }
 }
 
-const characterLoader = new GLTFLoader();
-const characterLetters = 'abcde'.split('');
-const characterMaterialCache = new Map();
-
-function loadCrewCharacter(actor) {
-  const letter = characterLetters[actor.variation % characterLetters.length];
-  const url = import.meta.env.BASE_URL + 'assets/kenney/blocky-characters/character-' + letter + '.glb';
-  characterLoader.load(url, (gltf) => {
-    const rig = gltf.scene;
-    rig.name = 'Tint3d crew ' + letter.toUpperCase();
-    rig.rotation.y = Math.PI;
-    rig.scale.setScalar(1.0);
-    rig.traverse((node) => {
-      if (!node.isMesh) return;
-      node.layers.enable(1);
-      node.castShadow = false;
-      node.receiveShadow = false;
-      const sourceMaterials = Array.isArray(node.material) ? node.material : [node.material];
-      const converted = sourceMaterials.map((source) => {
-        const key = source.map?.uuid || source.uuid;
-        if (characterMaterialCache.has(key)) return characterMaterialCache.get(key);
-        const toon = new THREE.MeshToonMaterial({
-          map: source.map || null, color: 0xffffff, gradientMap: toonRamp,
-          side: source.side || THREE.FrontSide
-        });
-        if (source.map) {
-          source.map.colorSpace = THREE.SRGBColorSpace;
-          source.map.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
-        }
-        characterMaterialCache.set(key, toon);
-        return toon;
-      });
-      node.material = Array.isArray(node.material) ? converted : converted[0];
-      node.frustumCulled = true;
-      if (actor.player) node.layers.disable(1);
-      else node.layers.enable(1);
-    });
-
-    const weapon = actor.group.userData.weapon;
-    for (const child of [...actor.group.children]) {
-      if (child !== weapon) actor.group.remove(child);
-    }
-    actor.group.add(rig);
-    actor.group.userData.rig = rig;
-
-    const accent = new THREE.MeshToonMaterial({
-      color: actor.team === BLUE ? 0x20d8e9 : 0xff7652,
-      gradientMap: toonRamp,
-      emissive: actor.team === BLUE ? 0x07566a : 0x69291d,
-      emissiveIntensity: 0.28
-    });
-    const trim = new THREE.MeshToonMaterial({
-      color: actor.team === BLUE ? 0x123c4a : 0x4d2527,
-      gradientMap: toonRamp
-    });
-    const crest = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.18, 0.055), accent);
-    crest.position.set(0, 1.36, 0.37);
-    rig.add(crest);
-    const crestLine = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.035, 0.025), trim);
-    crestLine.position.set(0, 1.36, 0.405);
-    rig.add(crestLine);
-    const shoulderGeometry = new THREE.SphereGeometry(0.13, 9, 7);
-    for (const side of [-1, 1]) {
-      const pin = new THREE.Mesh(shoulderGeometry, accent);
-      pin.position.set(side * 0.43, 1.48, 0.04);
-      pin.scale.set(1.15, 0.74, 0.62);
-      rig.add(pin);
-    }
-    rig.traverse((node) => {
-      if (node.isMesh) {
-        node.layers.enable(1);
-        if (actor.player) node.layers.disable(1);
-      }
-    });
-
-    const mixer = new THREE.AnimationMixer(rig);
-    const actions = {};
-    for (const clip of gltf.animations) actions[clip.name] = mixer.clipAction(clip);
-    actor.group.userData.mixer = mixer;
-    actor.group.userData.animationActions = actions;
-    actor.group.userData.currentAnimation = '';
-    actor.group.userData.shotTimer = 0;
-    actor.group.userData.arms = [];
-    actor.group.userData.legs = [];
-    const idle = actions.idle || actions.static;
-    if (idle) {
-      idle.reset().fadeIn(0.12).play();
-      actor.group.userData.currentAnimation = idle === actions.idle ? 'idle' : 'static';
-    }
-  }, undefined, (error) => {
-    console.warn('Tint3d character asset failed to load:', letter, error);
-  });
-}
 
 function makeCharacter(team, variation = 0) {
   const group = new THREE.Group();
   const palette = TEAM[team];
-  const bodyMat = toonMat('char-body-' + team, team === BLUE ? 0x159bb4 : 0xd85c46, 0.58, 0.08);
-  const trimMat = toonMat('char-trim-' + team, team === BLUE ? 0x092f45 : 0x54212c, 0.55, 0.15);
-  const clothMat = toonMat('char-cloth-' + team, team === BLUE ? 0x25384a : 0x44333b, 0.83, 0.03);
-  const accentMat = toonMat('char-accent-' + team, team === BLUE ? 0x20d8e9 : 0xff7652, 0.48, 0.18, team === BLUE ? 0x087e9a : 0x8b3025);
-  const skinColors = [0xb66e4c, 0xd39269, 0x8b523f, 0xd6a078, 0x9d6349];
-  const skin = toonMat('skin-' + variation, skinColors[variation % skinColors.length], 0.72, 0.02);
-  const hairColors = [0x17252b, 0x3e2522, 0x69462d, 0x202a3b, 0x4d293e];
-  const hair = toonMat('hair-' + variation, hairColors[variation % hairColors.length], 0.76, 0.02);
-  const white = toonMat('eye-white', 0xf5f2df, 0.42, 0.02);
-  const dark = toonMat('eye-dark', 0x12202a, 0.4, 0.02);
-  const sneaker = toonMat('sneaker-' + team, team === BLUE ? 0xc5f7f2 : 0xffd6be, 0.58, 0.05);
-  const addPart = (geometry, material, parent, x, y, z, scale) => {
-    const part = mesh(geometry, material, parent, x, y, z);
-    if (scale) part.scale.set(scale[0], scale[1], scale[2]);
-    return part;
+  const teamBase = toonMat('crew-base-' + team, team === BLUE ? 0x168fa8 : 0xc95142);
+  const teamDark = toonMat('crew-dark-' + team, team === BLUE ? 0x12394a : 0x552b32);
+  const teamLight = toonMat('crew-light-' + team, team === BLUE ? 0x39e7f0 : 0xff8767);
+  const cloth = toonMat('crew-cloth-' + team, team === BLUE ? 0x263e50 : 0x4a3440);
+  const sole = toonMat('crew-sole-' + team, 0x17252f);
+  const skinColors = [0xb87555, 0xd79a73, 0x86513f, 0xe0ad87, 0x9c624b];
+  const hairColors = [0x17242e, 0x41251f, 0x8a542d, 0x252b43, 0x572d47];
+  const skin = toonMat('crew-skin-' + variation, skinColors[variation % skinColors.length]);
+  const hair = toonMat('crew-hair-' + variation, hairColors[variation % hairColors.length]);
+  const eyeWhite = toonMat('crew-eye-white', 0xfff7e9);
+  const eyeDark = toonMat('crew-eye-dark', 0x18232d);
+  const highlight = new THREE.MeshBasicMaterial({ color: 0xffffff });
+  const accent = toonMat('crew-personal-accent-' + variation, [0xffd36e, 0xa6f4df, 0xffa7c4, 0xc4b7ff, 0xffd3a1][variation % 5]);
+
+  const part = (geometry, material, parent, x, y, z, sx = 1, sy = 1, sz = 1) => {
+    const item = mesh(geometry, material, parent, x, y, z);
+    item.scale.set(sx, sy, sz);
+    item.castShadow = false;
+    item.receiveShadow = false;
+    return item;
   };
+  const sphere = new THREE.SphereGeometry(1, 20, 14);
+  const smallSphere = new THREE.SphereGeometry(1, 12, 9);
+  const capsuleUpper = new THREE.CapsuleGeometry(0.115, 0.29, 4, 10);
+  const capsuleLower = new THREE.CapsuleGeometry(0.095, 0.25, 4, 10);
+  const capsuleLeg = new THREE.CapsuleGeometry(0.135, 0.31, 4, 10);
+  const torsoPivot = new THREE.Group();
+  torsoPivot.position.set(0, 0.80, 0);
+  group.add(torsoPivot);
 
-  // Compact athletic body with separate torso, collar, belt and layered streetwear.
-  addPart(shared.torso, bodyMat, group, 0, 1.03, 0.02);
-  addPart(shared.box, clothMat, group, 0, 1.08, -0.045, [0.67, 0.46, 0.52]);
-  addPart(shared.box, bodyMat, group, 0, 1.12, -0.315, [0.32, 0.25, 0.04]);
-  addPart(shared.box, accentMat, group, 0, 0.79, -0.08, [0.62, 0.11, 0.50]);
-  addPart(shared.box, trimMat, group, -0.20, 1.04, -0.325, [0.19, 0.19, 0.035]);
-  addPart(shared.box, accentMat, group, -0.20, 1.08, -0.348, [0.12, 0.08, 0.018]);
-  addPart(shared.box, trimMat, group, 0.23, 0.99, -0.30, [0.16, 0.13, 0.035]);
-  addPart(shared.box, accentMat, group, 0.23, 1.02, -0.325, [0.10, 0.055, 0.018]);
-  addPart(shared.ring, trimMat, group, 0, 1.36, -0.03, [0.66, 0.66, 0.66]);
-  addPart(shared.sphere, skin, group, 0, 1.77, -0.035, [0.87, 0.98, 0.84]);
-  addPart(shared.sphere, hair, group, 0, 1.97, 0.015, [1.02, 0.50, 1.00]);
-  addPart(shared.sphere, hair, group, 0, 1.86, -0.245, [0.78, 0.28, 0.44]);
+  // Rounded sports jacket and fitted waist; no box-shaped torso or block joints.
+  part(new THREE.CapsuleGeometry(0.325, 0.43, 5, 16), teamBase, torsoPivot, 0, 0.43, 0.005, 1.06, 1.0, 0.82);
+  part(sphere, cloth, torsoPivot, 0, 0.43, 0.018, 0.365, 0.47, 0.285);
+  part(sphere, teamDark, torsoPivot, 0, 0.10, 0.005, 0.30, 0.19, 0.245);
+  part(sphere, teamLight, torsoPivot, 0, 0.24, -0.263, 0.095, 0.18, 0.035);
+  part(sphere, accent, torsoPivot, 0.205, 0.43, -0.253, 0.065, 0.055, 0.025);
+  part(sphere, teamLight, torsoPivot, -0.205, 0.43, -0.253, 0.065, 0.055, 0.025);
+  part(new THREE.TorusGeometry(0.115, 0.018, 6, 18), teamLight, torsoPivot, 0, 0.63, 0, 1, 1, 0.82);
+  part(sphere, skin, torsoPivot, 0, 0.80, 0, 0.135, 0.17, 0.13);
 
-  const cheekMat = toonMat('cheek-' + variation, variation % 2 ? 0xe17d70 : 0xf0a07c);
-  const eyeGlint = new THREE.MeshBasicMaterial({ color: 0xffffff });
+  // A compact pressure pack with a visible fluid window and hose.
+  part(new THREE.CapsuleGeometry(0.16, 0.34, 4, 10), teamDark, torsoPivot, 0, 0.40, 0.285, 1.05, 1, 0.72);
+  part(sphere, teamLight, torsoPivot, 0, 0.43, 0.345, 0.105, 0.17, 0.055);
+  part(new THREE.TorusGeometry(0.11, 0.018, 6, 16), accent, torsoPivot, 0, 0.43, 0.39, 1, 1, 0.45);
+  const hoseCurve = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(0.12, 0.50, 0.28),
+    new THREE.Vector3(0.30, 0.45, 0.19),
+    new THREE.Vector3(0.29, 0.15, 0.04),
+    new THREE.Vector3(0.18, 0.10, -0.08)
+  ]);
+  part(new THREE.TubeGeometry(hoseCurve, 12, 0.025, 6, false), teamLight, torsoPivot, 0, 0, 0);
+
+  // Head pivot: deliberately larger and softer, with readable facial features.
+  const head = new THREE.Group();
+  head.position.set(0, 0.94, -0.012);
+  torsoPivot.add(head);
+  part(sphere, skin, head, 0, 0, 0, 0.325, 0.345, 0.292);
+  part(sphere, hair, head, 0, 0.205, 0.035, 0.34, 0.235, 0.31);
+  part(sphere, hair, head, 0, 0.085, -0.245, 0.29, 0.13, 0.09);
   for (const side of [-1, 1]) {
-    addPart(shared.smallSphere, white, group, side * 0.112, 1.755, -0.315, [0.108, 0.122, 0.052]);
-    addPart(shared.smallSphere, dark, group, side * 0.112, 1.752, -0.361, [0.056, 0.077, 0.029]);
-    addPart(shared.smallSphere, eyeGlint, group, side * 0.092, 1.785, -0.386, [0.022, 0.026, 0.014]);
-    addPart(shared.box, hair, group, side * 0.112, 1.875, -0.356, [0.145, 0.04, 0.032]);
-    addPart(shared.smallSphere, skin, group, side * 0.278, 1.72, -0.02, [0.075, 0.11, 0.08]);
-    addPart(shared.smallSphere, cheekMat, group, side * 0.205, 1.655, -0.285, [0.075, 0.035, 0.022]);
+    part(sphere, skin, head, side * 0.306, -0.045, -0.012, 0.065, 0.09, 0.07);
+    part(sphere, eyeWhite, head, side * 0.112, -0.015, -0.267, 0.087, 0.105, 0.045);
+    part(sphere, eyeDark, head, side * 0.105, -0.017, -0.307, 0.045, 0.071, 0.025);
+    part(sphere, highlight, head, side * 0.09, 0.018, -0.329, 0.018, 0.023, 0.012);
+    const brow = part(capsuleUpper, hair, head, side * 0.11, 0.105, -0.264, 0.38, 0.18, 0.24);
+    brow.rotation.z = side * -0.12;
+    part(sphere, accent, head, side * 0.20, -0.13, -0.246, 0.045, 0.022, 0.014);
   }
-  addPart(shared.box, dark, group, 0, 1.63, -0.327, [0.11, 0.025, 0.025]);
-  const nose = addPart(shared.sphere, skin, group, 0, 1.70, -0.35, [0.035, 0.045, 0.045]);
-  nose.material = skin;
+  part(sphere, skin, head, 0, -0.075, -0.296, 0.045, 0.04, 0.035);
+  const smile = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(-0.07, -0.16, -0.276),
+    new THREE.Vector3(0, -0.185, -0.295),
+    new THREE.Vector3(0.07, -0.16, -0.276)
+  ]);
+  part(new THREE.TubeGeometry(smile, 8, 0.012, 5, false), eyeDark, head);
 
-  // Individual silhouette accessories: split locks, cap brim or tied-up hair.
-  if (variation % 3 === 0) {
-    for (const side of [-1, 1]) {
-      const lock = addPart(shared.limb, hair, group, side * 0.245, 1.63, 0.03, [0.62, 0.58, 0.70]);
-      lock.rotation.z = side * -0.32;
-    }
-    addPart(shared.sphere, hair, group, 0, 2.11, 0.10, [0.34, 0.22, 0.35]);
-  } else if (variation % 3 === 1) {
-    addPart(shared.box, trimMat, group, 0, 2.015, -0.01, [0.70, 0.13, 0.68]);
-    addPart(shared.box, accentMat, group, 0, 1.95, -0.29, [0.67, 0.055, 0.39]);
-    addPart(shared.box, hair, group, 0, 1.91, 0.26, [0.42, 0.24, 0.27]);
+  // Distinct swept ink-lock hairstyles; rounded tubes replace square hair blocks.
+  const hairSets = [
+    [[-0.23,0.18,0.02],[-0.34,0.23,0.12],[-0.42,0.05,0.28]],
+    [[-0.12,0.28,0.02],[-0.04,0.42,0.12],[0.08,0.38,0.30]],
+    [[0.03,0.25,0.05],[0.18,0.38,0.17],[0.32,0.20,0.30]],
+    [[0.21,0.17,0.03],[0.36,0.14,0.10],[0.43,-0.03,0.25]]
+  ];
+  for (let i = 0; i < hairSets.length; i++) {
+    const pts = hairSets[i].map((p) => new THREE.Vector3(p[0], p[1], p[2]));
+    const strand = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(pts[0].x * 0.35, 0.18 + pts[0].y * 0.65, 0.015),
+      pts[0], pts[1], pts[2]
+    ]);
+    part(new THREE.TubeGeometry(strand, 14, i === variation % 4 ? 0.085 : 0.064, 7, false), hair, head);
+  }
+  if (variation % 2 === 0) {
+    part(new THREE.TorusGeometry(0.30, 0.027, 6, 24), accent, head, 0, 0.19, 0.02, 1, 0.42, 0.92);
   } else {
-    addPart(shared.sphere, hair, group, 0, 2.18, 0.08, [0.19, 0.22, 0.18]);
-    const lock = addPart(shared.limb, hair, group, 0.28, 1.64, 0.02, [0.62, 0.58, 0.68]);
-    lock.rotation.z = -0.42;
-    addPart(shared.box, accentMat, group, 0, 1.88, -0.27, [0.58, 0.075, 0.07]);
+    part(sphere, teamLight, head, 0, 0.32, 0.04, 0.12, 0.045, 0.11);
   }
 
-  // Backpack, pressure gauge and twin reservoirs create a readable gear silhouette.
-  addPart(shared.box, trimMat, group, 0, 1.08, 0.39, [0.49, 0.55, 0.29]);
-  addPart(shared.box, accentMat, group, 0, 1.10, 0.55, [0.29, 0.13, 0.035]);
-  for (const side of [-1, 1]) {
-    const tank = addPart(shared.cylinder, bodyMat, group, side * 0.17, 1.13, 0.55, [0.095, 0.42, 0.095]);
-    tank.rotation.x = Math.PI / 2;
-    addPart(shared.ring, accentMat, group, side * 0.17, 1.14, 0.69, [0.35, 0.35, 0.35]);
-  }
-  addPart(shared.smallSphere, accentMat, group, 0.27, 1.34, 0.45, [0.11, 0.11, 0.11]);
+  // Pivoted arms with elbows and rounded gloves, all independently animated.
+  const makeArm = (side) => {
+    const shoulder = new THREE.Group();
+    shoulder.position.set(side * 0.345, 0.64, -0.005);
+    torsoPivot.add(shoulder);
+    part(sphere, teamBase, shoulder, 0, -0.02, 0, 0.155, 0.16, 0.16);
+    part(capsuleUpper, cloth, shoulder, 0, -0.20, 0, 1, 1, 1);
+    part(new THREE.TorusGeometry(0.105, 0.018, 5, 14), teamLight, shoulder, 0, -0.35, 0, 1, 1, 0.9);
+    const elbow = new THREE.Group();
+    elbow.position.set(0, -0.365, 0);
+    shoulder.add(elbow);
+    part(capsuleLower, skin, elbow, 0, -0.15, -0.015, 1, 1, 1);
+    part(sphere, skin, elbow, 0, -0.30, -0.045, 0.105, 0.10, 0.105);
+    part(sphere, teamLight, elbow, 0, -0.30, -0.12, 0.11, 0.085, 0.055);
+    return { shoulder, elbow };
+  };
+  const leftArm = makeArm(-1);
+  const rightArm = makeArm(1);
+  rightArm.shoulder.rotation.x = 0.38;
+  leftArm.shoulder.rotation.x = 0.60;
 
-  // Pivoted limbs: the swing now comes from shoulders and hips instead of sliding parts.
-  const leftArm = new THREE.Group();
-  leftArm.position.set(-0.39, 1.36, -0.035);
-  group.add(leftArm);
-  addPart(shared.sphere, trimMat, leftArm, 0, 0, 0, [0.21, 0.18, 0.20]);
-  const leftSleeve = addPart(shared.limb, clothMat, leftArm, 0, -0.22, 0, [1, 1.05, 1]);
-  leftSleeve.rotation.x = -0.12;
-  addPart(shared.cylinder, accentMat, leftArm, 0, -0.40, -0.025, [0.132, 0.075, 0.132]);
-  addPart(shared.limb, skin, leftArm, 0, -0.47, -0.08, [0.82, 0.85, 0.82]);
-  addPart(shared.smallSphere, accentMat, leftArm, 0, -0.59, -0.13, [0.14, 0.14, 0.14]);
+  // The weapon is parented to the right hand, so it follows the wrist and elbow.
+  const weapon = new THREE.Group();
+  weapon.position.set(0.025, -0.28, -0.17);
+  rightArm.elbow.add(weapon);
+  const barrel = part(new THREE.CylinderGeometry(0.105, 0.145, 0.70, 12), teamDark, weapon, 0, 0, -0.40);
+  barrel.rotation.x = Math.PI / 2;
+  const barrelSleeve = part(new THREE.CylinderGeometry(0.14, 0.14, 0.18, 12), teamBase, weapon, 0, 0, -0.55);
+  barrelSleeve.rotation.x = Math.PI / 2;
+  const nozzle = part(new THREE.CylinderGeometry(0.19, 0.14, 0.12, 14), teamLight, weapon, 0, 0, -0.79);
+  nozzle.rotation.x = Math.PI / 2;
+  const muzzleRing = part(new THREE.TorusGeometry(0.135, 0.027, 6, 16), accent, weapon, 0, 0, -0.86);
+  muzzleRing.rotation.x = Math.PI / 2;
+  part(sphere, teamBase, weapon, 0.16, 0.10, 0.04, 0.18, 0.16, 0.21);
+  part(new THREE.CylinderGeometry(0.12, 0.12, 0.25, 10), teamDark, weapon, 0.16, -0.05, 0.03, 1, 1, 1);
+  const flash = part(sphere, new THREE.MeshBasicMaterial({
+    color: palette.ink, transparent: true, opacity: 0.95, depthWrite: false
+  }), weapon, 0, 0, -0.94, 0.13, 0.13, 0.13);
+  flash.visible = false;
 
-  const rightArm = new THREE.Group();
-  rightArm.position.set(0.39, 1.36, -0.035);
-  group.add(rightArm);
-  addPart(shared.sphere, trimMat, rightArm, 0, 0, 0, [0.21, 0.18, 0.20]);
-  const rightSleeve = addPart(shared.limb, clothMat, rightArm, 0, -0.20, -0.03);
-  rightSleeve.rotation.x = -0.38;
-  addPart(shared.limb, skin, rightArm, 0, -0.39, -0.23, [0.82, 0.82, 0.82]);
-  addPart(shared.smallSphere, skin, rightArm, 0, -0.51, -0.31, [0.14, 0.14, 0.14]);
-
+  // Athletic shorts, articulated knees, calves and oversized soft sneakers.
   const legs = [];
   for (const side of [-1, 1]) {
-    const legRig = new THREE.Group();
-    legRig.position.set(side * 0.17, 0.67, 0.025);
-    group.add(legRig);
-    addPart(shared.limb, clothMat, legRig, 0, -0.17, 0, [0.88, 1.04, 0.88]);
-    addPart(shared.limb, trimMat, legRig, 0, -0.40, -0.025, [0.78, 0.76, 0.82]);
-    addPart(shared.shoe, sneaker, legRig, 0, -0.59, -0.13, [1.05, 0.88, 1.05]);
-    addPart(shared.box, trimMat, legRig, 0, -0.675, -0.13, [1.08, 0.20, 1.12]);
-    legs.push(legRig);
+    const hip = new THREE.Group();
+    hip.position.set(side * 0.165, 0.77, 0.015);
+    group.add(hip);
+    part(sphere, teamDark, hip, 0, -0.04, 0, 0.16, 0.20, 0.17);
+    part(capsuleLeg, cloth, hip, 0, -0.20, 0, 1, 1, 0.9);
+    const knee = new THREE.Group();
+    knee.position.set(0, -0.37, 0);
+    hip.add(knee);
+    part(sphere, teamBase, knee, 0, 0, 0, 0.12, 0.11, 0.12);
+    part(capsuleLower, cloth, knee, 0, -0.16, 0, 1.1, 1.12, 1.05);
+    part(sphere, sole, knee, 0, -0.32, -0.07, 0.18, 0.105, 0.28);
+    part(sphere, teamLight, knee, 0, -0.29, -0.105, 0.17, 0.085, 0.26);
+    part(new THREE.TorusGeometry(0.12, 0.018, 5, 14), accent, knee, 0, -0.31, -0.10, 1.1, 0.55, 1.0);
+    legs.push({ hip, knee });
   }
 
-  // Original "Twin Jet" pressure sprayer, with a muzzle ring, side tank and grip.
-  const weapon = new THREE.Group();
-  const barrel = addPart(shared.cylinder, trimMat, weapon, 0, 0, -0.40, [0.125, 0.74, 0.125]);
-  barrel.rotation.x = Math.PI / 2;
-  const barrelBand = addPart(shared.cylinder, accentMat, weapon, 0, 0, -0.67, [0.155, 0.09, 0.155]);
-  barrelBand.rotation.x = Math.PI / 2;
-  const nozzle = addPart(shared.cylinder, bodyMat, weapon, 0, 0, -0.82, [0.22, 0.105, 0.22]);
-  nozzle.rotation.x = Math.PI / 2;
-  const muzzleRing = addPart(shared.ring, accentMat, weapon, 0, 0, -0.90, [0.54, 0.54, 0.54]);
-  muzzleRing.rotation.x = Math.PI / 2;
-  addPart(shared.sphere, bodyMat, weapon, 0.21, 0.13, 0.10, [0.18, 0.20, 0.24]);
-  addPart(shared.cylinder, trimMat, weapon, 0.21, 0.13, 0.10, [0.15, 0.29, 0.15]);
-  const grip = addPart(shared.box, trimMat, weapon, 0.02, -0.20, -0.05, [0.14, 0.30, 0.17]);
-  grip.rotation.x = -0.12;
-  const flash = addPart(shared.sphere, new THREE.MeshBasicMaterial({
-    color: palette.ink, transparent: true, opacity: 0.9, depthWrite: false
-  }), weapon, 0, 0, -1.02, [0.13, 0.13, 0.13]);
-  flash.visible = false;
-  weapon.position.set(0.47, 1.20, -0.24);
-  group.add(weapon);
+  group.userData.character = {
+    torsoPivot, head, leftArm, rightArm, legs, weapon, flash,
+    defaultLeftArm: 0.60, defaultRightArm: 0.38
+  };
   group.userData.weapon = weapon;
   group.userData.flash = flash;
   group.userData.flashTimer = 0;
-  group.userData.arms = [leftArm, rightArm];
-  group.userData.legs = legs;
-  group.userData.palette = palette;
-  group.traverse((child) => { if (child.isMesh) child.layers.enable(1); });
+  group.userData.shotTimer = 0;
+  group.userData.arms = [leftArm.shoulder, rightArm.shoulder];
+  group.userData.legs = legs.map((leg) => leg.hip);
+  group.traverse((node) => { if (node.isMesh) node.layers.enable(1); });
   return group;
 }
 
+function resetCharacterPose(actor) {
+  const c = actor.group.userData.character;
+  if (!c) return;
+  c.torsoPivot.position.set(0, 0.80, 0);
+  c.torsoPivot.rotation.set(0, 0, 0);
+  c.torsoPivot.scale.set(1, 1, 1);
+  c.head.rotation.set(0, 0, 0);
+  c.leftArm.shoulder.rotation.set(c.defaultLeftArm, 0, 0);
+  c.leftArm.elbow.rotation.set(0, 0, 0);
+  c.rightArm.shoulder.rotation.set(c.defaultRightArm, 0, 0);
+  c.rightArm.elbow.rotation.set(0, 0, 0);
+  for (const leg of c.legs) {
+    leg.hip.rotation.set(0, 0, 0);
+    leg.knee.rotation.set(0, 0, 0);
+  }
+  c.weapon.position.set(0.025, -0.28, -0.17);
+  c.weapon.rotation.set(0, 0, 0);
+  actor.ragdollState = null;
+  actor.hitTimer = 0;
+  actor.landImpact = 0;
+}
 function createActor(team, variation, x, z, playerControlled = false) {
   const group = makeCharacter(team, variation);
   const actor = {
@@ -1860,7 +1907,7 @@ function createActor(team, variation, x, z, playerControlled = false) {
     moveCooldown: 0, target: new THREE.Vector3(x, 0, z),
     respawn: 0, invulnerable: 0, eliminations: 0, walkPhase: Math.random() * 6,
     ink: 100, flow: 0, flowCooldown: 0, verticalVelocity: 0, grounded: true,
-    velocity: new THREE.Vector3(), recoil: 0
+    velocity: new THREE.Vector3(), recoil: 0, hitTimer: 0, landImpact: 0, ragdollState: null
   };
   if (playerControlled) group.traverse((child) => { if (child.isMesh) child.layers.disable(1); });
   const shadow = new THREE.Mesh(shadowGeometry, shadowMaterial);
@@ -1871,7 +1918,6 @@ function createActor(team, variation, x, z, playerControlled = false) {
   actor.shadow = shadow;
   group.position.copy(actor.position);
   scene.add(group);
-  loadCrewCharacter(actor);
   return actor;
 }
 const player = createActor(BLUE, 0, 0, 15.2, true);
@@ -2057,11 +2103,13 @@ function respawnActor(actor) {
   actor.group.visible = true;
   actor.group.position.copy(actor.position);
   actor.group.rotation.set(0, actor.team === BLUE ? 0 : Math.PI, 0);
+  resetCharacterPose(actor);
   updateActorShadow(actor);
 }
 function damageActor(actor, amount, source) {
-  if (actor.invulnerable > 0 || !actor.group.visible) return;
+  if (actor.invulnerable > 0 || !actor.group.visible || actor.ragdollState) return;
   actor.health = Math.max(0, actor.health - amount);
+  actor.hitTimer = 0.22;
   if (actor.player) {
     updateInk();
     ui.hit.classList.add('visible');
@@ -2069,8 +2117,20 @@ function damageActor(actor, amount, source) {
   }
   if (actor.health <= 0) {
     actor.respawn = actor.player ? 2.3 : 3.4;
-    actor.group.visible = false;
-    if (actor.shadow) actor.shadow.visible = false;
+    const direction = source ? actor.position.clone().sub(source.position) : new THREE.Vector3(Math.random() - 0.5, 0, Math.random() - 0.5);
+    if (direction.lengthSq() < 0.001) direction.set(0, 0, 1);
+    direction.normalize();
+    actor.ragdollState = {
+      time: 0, pitch: -0.28, pitchVelocity: -1.15 - Math.random() * 0.45,
+      roll: direction.x * 0.42, rollVelocity: direction.x * 2.1,
+      leftArmVelocity: -5.2 - Math.random() * 2.5,
+      rightArmVelocity: 4.8 + Math.random() * 2.8,
+      leftElbowVelocity: 5.5, rightElbowVelocity: -5.2,
+      legVelocity: [-3.4 - Math.random() * 2, 3.0 + Math.random() * 2]
+    };
+    actor.velocity.addScaledVector(direction, 3.2);
+    actor.group.visible = true;
+    if (actor.shadow) actor.shadow.visible = true;
     if (source && source.player) {
       source.eliminations++;
       totalEliminations++;
@@ -2195,50 +2255,110 @@ function updatePlayer(delta) {
   }
   updateInk();
 }
+
 function animateActor(actor, moving, delta = 0.016) {
-  const rigData = actor.group.userData;
-  const mixer = rigData.mixer;
-  if (mixer) {
-    rigData.shotTimer = Math.max(0, (rigData.shotTimer || 0) - delta);
-    const requested = rigData.shotTimer > 0 ? 'holding-both-shoot'
-      : moving > 0.05 ? (actor.flow > 0 ? 'sprint' : 'walk') : 'idle';
-    const actions = rigData.animationActions || {};
-    const nextName = actions[requested] ? requested : (actions.idle ? 'idle' : 'static');
-    if (nextName && nextName !== rigData.currentAnimation && actions[nextName]) {
-      const previous = actions[rigData.currentAnimation];
-      const next = actions[nextName];
-      next.reset().fadeIn(0.16).play();
-      if (previous) previous.fadeOut(0.16);
-      rigData.currentAnimation = nextName;
+  const c = actor.group.userData.character;
+  if (!c || actor.ragdollState) return;
+  const t = actor.walkPhase || 0;
+  const speed = clamp(moving, 0, 1);
+  const running = speed > 0.05;
+  const sprinting = actor.flow > 0;
+  const stride = running ? Math.sin(t) * (sprinting ? 0.92 : 0.70) * speed : 0;
+  const bounce = running ? Math.abs(Math.sin(t * 2)) * (sprinting ? 0.09 : 0.065) : Math.sin(t * 0.9) * 0.012;
+  const shot = actor.group.userData.shotTimer || 0;
+  actor.group.userData.shotTimer = Math.max(0, shot - delta);
+  const shooting = clamp(shot / 0.30, 0, 1);
+  const hit = Math.max(0, actor.hitTimer || 0);
+  actor.hitTimer = Math.max(0, hit - delta);
+  const hitFactor = hit > 0 ? hit / 0.22 : 0;
+  const air = actor.player && !actor.grounded ? 1 : 0;
+  const idleGesture = running ? 0 : Math.sin(t * 0.72);
+
+  c.torsoPivot.position.y = 0.80 + bounce + (actor.landImpact > 0 ? -actor.landImpact * 0.08 : 0);
+  c.torsoPivot.rotation.x = running ? (sprinting ? -0.25 : -0.10) : Math.sin(t * 0.55) * 0.025;
+  c.torsoPivot.rotation.z = clamp(-actor.velocity.x * 0.009, -0.14, 0.14) + hitFactor * 0.16;
+  c.torsoPivot.scale.y = 1 - Math.max(0, actor.landImpact || 0) * 0.12;
+  c.torsoPivot.scale.x = 1 + Math.max(0, actor.landImpact || 0) * 0.06;
+  c.head.rotation.x = Math.sin(t * 1.7) * 0.025 + air * 0.10 + shooting * 0.055;
+  c.head.rotation.y = running ? -stride * 0.06 : idleGesture * 0.10;
+  c.head.rotation.z = Math.sin(t * 0.55) * 0.025 - hitFactor * 0.18;
+
+  c.leftArm.shoulder.rotation.x = c.defaultLeftArm - stride * 0.34 - air * 0.90 + shooting * 0.10;
+  c.rightArm.shoulder.rotation.x = c.defaultRightArm + stride * 0.30 - air * 0.55 - shooting * 0.22;
+  c.leftArm.shoulder.rotation.z = -0.035 + Math.sin(t * 0.9) * 0.035 + hitFactor * 0.42;
+  c.rightArm.shoulder.rotation.z = 0.025 - hitFactor * 0.58;
+  c.leftArm.elbow.rotation.x = -0.18 - Math.max(0, stride) * 0.22 - air * 0.55;
+  c.rightArm.elbow.rotation.x = -0.08 - shooting * 0.32 - Math.max(0, -stride) * 0.18;
+  c.leftArm.elbow.rotation.z = -0.06;
+  c.rightArm.elbow.rotation.z = 0.045;
+  c.weapon.position.z = -0.17 + (actor.recoil || 0) * 0.55;
+  c.weapon.rotation.x = actor.player ? clamp((0.20 - pitch) * 0.65, -0.12, 0.82) : -0.05;
+
+  for (let i = 0; i < 2; i++) {
+    const leg = c.legs[i];
+    const phase = t + (i === 0 ? 0 : Math.PI);
+    leg.hip.rotation.x = running ? Math.sin(phase) * (sprinting ? 0.95 : 0.72) : Math.sin(t * 0.8 + i) * 0.018;
+    leg.hip.rotation.z = i === 0 ? 0.015 : -0.015;
+    leg.knee.rotation.x = running ? Math.max(0, Math.sin(phase + 0.5)) * (sprinting ? 0.92 : 0.68) : 0.025;
+    if (air) {
+      leg.hip.rotation.x = (i === 0 ? 0.52 : -0.70);
+      leg.knee.rotation.x = i === 0 ? 0.82 : 0.60;
     }
-    mixer.update(delta);
+    leg.hip.rotation.z += hitFactor * (i === 0 ? 0.34 : -0.28);
   }
-  const legs = actor.group.userData.legs || [];
-  const arms = actor.group.userData.arms || [];
-  const swing = moving > 0.05 ? Math.sin(actor.walkPhase) * 0.68 : 0;
-  if (legs.length >= 2) {
-    legs[0].rotation.x = swing;
-    legs[1].rotation.x = -swing;
-  }
-  if (arms.length >= 2) {
-    arms[0].rotation.x = -0.20 + swing * 0.18;
-    arms[1].rotation.x = -0.48 - swing * 0.12;
-  }
-  actor.recoil = Math.max(0, (actor.recoil || 0) - delta * 1.9);
-  const weapon = actor.group.userData.weapon;
-  if (weapon) {
-    weapon.position.z = -0.24 + actor.recoil;
-    if (!actor.player) weapon.rotation.x = 0;
-  }
-  const flash = actor.group.userData.flash;
-  if (flash) {
-    actor.group.userData.flashTimer = Math.max(0, actor.group.userData.flashTimer - delta);
-    flash.visible = actor.group.userData.flashTimer > 0;
-    flash.scale.setScalar(0.65 + Math.random() * 0.65);
-  }
-  const bob = moving > 0.05 ? Math.abs(Math.sin(actor.walkPhase * 2)) * 0.055 : 0;
-  actor.group.position.y = actor.position.y + bob;
+  actor.recoil = Math.max(0, (actor.recoil || 0) - delta * 2.8);
+  c.flash.visible = actor.group.userData.flashTimer > 0;
+  actor.group.userData.flashTimer = Math.max(0, actor.group.userData.flashTimer - delta);
+  if (c.flash.visible) c.flash.scale.setScalar(0.72 + Math.random() * 0.5);
+  actor.landImpact = Math.max(0, (actor.landImpact || 0) - delta * 2.6);
+  actor.group.position.y = actor.position.y;
   updateActorShadow(actor);
+}
+
+function updateRagdolls(delta) {
+  for (const actor of actors) {
+    const state = actor.ragdollState;
+    if (!state) continue;
+    state.time += delta;
+    const c = actor.group.userData.character;
+    if (!c) continue;
+    const damp = Math.exp(-2.7 * delta);
+    state.pitchVelocity += 1.9 * delta;
+    state.rollVelocity += -state.roll * 2.4 * delta;
+    state.pitch = clamp(state.pitch + state.pitchVelocity * delta, -1.38, 0.35);
+    state.roll += state.rollVelocity * delta;
+    state.pitchVelocity *= damp;
+    state.rollVelocity *= Math.exp(-2.1 * delta);
+    c.torsoPivot.rotation.x = state.pitch;
+    c.torsoPivot.rotation.z = state.roll;
+    c.torsoPivot.position.y = 0.80 - Math.min(0.32, state.time * 0.42);
+    c.head.rotation.x = 0.28 + Math.sin(state.time * 10) * 0.15 * Math.exp(-2 * state.time);
+    c.leftArm.shoulder.rotation.x += state.leftArmVelocity * delta;
+    c.rightArm.shoulder.rotation.x += state.rightArmVelocity * delta;
+    c.leftArm.shoulder.rotation.z = -0.9 * state.roll;
+    c.rightArm.shoulder.rotation.z = 0.9 * state.roll;
+    c.leftArm.elbow.rotation.x += state.leftElbowVelocity * delta;
+    c.rightArm.elbow.rotation.x += state.rightElbowVelocity * delta;
+    for (let i = 0; i < 2; i++) {
+      const leg = c.legs[i];
+      const sign = i === 0 ? -1 : 1;
+      leg.hip.rotation.x += state.legVelocity[i] * delta;
+      leg.hip.rotation.z = sign * state.roll * 0.28;
+      leg.knee.rotation.x = 0.35 + Math.sin(state.time * 7 + i) * 0.22 * Math.exp(-2 * state.time);
+      state.legVelocity[i] *= damp;
+    }
+    state.leftArmVelocity *= damp;
+    state.rightArmVelocity *= damp;
+    state.leftElbowVelocity *= damp;
+    state.rightElbowVelocity *= damp;
+    actor.group.position.y = actor.position.y;
+    updateActorShadow(actor);
+    if (state.time >= 0.86) {
+      actor.ragdollState = null;
+      actor.group.visible = false;
+      if (actor.shadow) actor.shadow.visible = false;
+    }
+  }
 }
 function updateBots(delta) {
   for (const actor of [...blueBots, ...orangeBots]) {
@@ -2385,6 +2505,11 @@ function resetPaint() {
   paintHeightCtx.fillRect(0, 0, 1024, 1024);
   paintClearcoatCtx.fillStyle = '#000000';
   paintClearcoatCtx.fillRect(0, 0, 1024, 1024);
+  for (const team of [1, 2]) {
+    wetPoolCounts[team] = 0;
+    wetPools[team].count = 0;
+    wetPools[team].visible = false;
+  }
   paintRoughnessTexture.needsUpdate = true;
   paintHeightTexture.needsUpdate = true;
   paintClearcoatTexture.needsUpdate = true;
@@ -2421,6 +2546,8 @@ function resetMatch() {
     actor.moveCooldown = 0;
     actor.flow = 0;
     actor.flowCooldown = 0;
+    actor.hitTimer = 0;
+    resetCharacterPose(actor);
   }
   player.health = 100;
   player.verticalVelocity = 0;
@@ -2582,6 +2709,7 @@ function animate() {
     updateProjectiles(delta);
   }
   updateParticles(delta);
+  updateRagdolls(delta);
   updateMinimap(delta);
   if (toastTimer > 0) {
     toastTimer -= delta;
