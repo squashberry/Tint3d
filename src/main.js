@@ -1883,15 +1883,47 @@ function spawnMotionSpray(actor, count = 2, strength = 0.7) {
     );
     const drop = mesh(shared.smallSphere, projectileMaterials[actor.team], scene, position.x, position.y, position.z);
     drop.layers.disable(1);
-    const size = 0.035 + Math.random() * 0.045;
-    drop.scale.set(size * 1.35, size, size * 1.15);
+    const size = 0.045 + Math.random() * (strength > 1.2 ? 0.075 : 0.045);
+    drop.scale.set(size * (actor.sliding ? 2.4 : 1.55), size * 0.68, size * (actor.sliding ? 1.5 : 1.2));
     particles.push({
-      mesh: drop, life: 0.22 + Math.random() * 0.16, maxLife: 0.38,
+      mesh: drop, life: 0.30 + Math.random() * 0.20, maxLife: 0.50,
       velocity: new THREE.Vector3(
-        -movement.x * (0.25 + Math.random() * strength) + side.x * lateral * 2.8,
-        0.30 + Math.random() * 0.72 * strength,
-        -movement.z * (0.25 + Math.random() * strength) + side.z * lateral * 2.8
+        -movement.x * (0.45 + Math.random() * strength) + side.x * lateral * (actor.sliding ? 4.2 : 2.8),
+        0.42 + Math.random() * (actor.sliding ? 1.4 : 0.85) * strength,
+        -movement.z * (0.45 + Math.random() * strength) + side.z * lateral * (actor.sliding ? 4.2 : 2.8)
       )
+    });
+  }
+}
+function spawnHitBurst(position, team, strength = 1) {
+  if (particles.length > 108) return;
+  const count = Math.min(13, Math.round(7 + strength * 4));
+  for (let i = 0; i < count; i++) {
+    const drop = mesh(shared.smallSphere, projectileMaterials[team], scene, position.x, position.y, position.z);
+    drop.layers.disable(1);
+    const size = 0.055 + Math.random() * 0.075;
+    drop.scale.set(size, size * (0.8 + Math.random() * 0.8), size);
+    const angle = Math.random() * Math.PI * 2;
+    const speed = (1.7 + Math.random() * 3.5) * strength;
+    particles.push({
+      mesh: drop, life: 0.30 + Math.random() * 0.24, maxLife: 0.54,
+      velocity: new THREE.Vector3(Math.cos(angle) * speed, 1.0 + Math.random() * 2.2 * strength, Math.sin(angle) * speed)
+    });
+  }
+}
+function spawnMuzzleBurst(origin, direction, team) {
+  if (particles.length > 112) return;
+  const forward = direction.clone().normalize();
+  const side = new THREE.Vector3(-forward.z, 0, forward.x);
+  for (let i = 0; i < 5; i++) {
+    const drop = mesh(shared.smallSphere, projectileMaterials[team], scene, origin.x, origin.y, origin.z);
+    drop.layers.disable(1);
+    const size = 0.045 + Math.random() * 0.055;
+    drop.scale.set(size * 1.8, size, size);
+    const lateral = (Math.random() - 0.5) * 2.4;
+    particles.push({
+      mesh: drop, life: 0.13 + Math.random() * 0.11, maxLife: 0.24,
+      velocity: forward.clone().multiplyScalar(2.8 + Math.random() * 3.4).addScaledVector(side, lateral).add(new THREE.Vector3(0, (Math.random() - 0.5) * 1.6, 0))
     });
   }
 }
@@ -2246,6 +2278,7 @@ let soundOn = false;
 let timeLeft = MATCH_SECONDS;
 let toastTimer = 0;
 let fireHeld = false;
+let cameraShake = 0;
 let jumpQueued = false;
 let jumpHeld = false;
 let sprintHeld = false;
@@ -2358,8 +2391,12 @@ function fireActor(actor, target) {
     destination.x += (Math.random() - 0.5) * 1.5;
     destination.z += (Math.random() - 0.5) * 1.5;
   }
-  spawnProjectile(muzzlePosition(actor), destination, actor.team, actor);
+  const muzzle = muzzlePosition(actor);
+  const shotDirection = destination.clone().sub(muzzle).normalize();
+  spawnMuzzleBurst(muzzle, shotDirection, actor.team);
+  spawnProjectile(muzzle, destination, actor.team, actor);
   if (actor.player) {
+    cameraShake = Math.max(cameraShake, 0.035);
     updateInk();
     playPop(1);
   }
@@ -2460,6 +2497,8 @@ function updateProjectiles(delta) {
       const dy = pos.y - (actor.position.y + 1.05);
       if (dx * dx + dz * dz < p.radius * p.radius && Math.abs(dy) < 0.8) {
         damageActor(actor, actor.player ? 22 : 36, p.owner);
+        spawnHitBurst(new THREE.Vector3(pos.x, actor.position.y + 1.05, pos.z), p.team, actor.player ? 1.25 : 1);
+        if (actor.player) cameraShake = Math.max(cameraShake, 0.20);
         paintAt(new THREE.Vector3(pos.x, 0, pos.z), p.team, 1.3);
         hitActor = true;
         break;
@@ -2519,18 +2558,20 @@ function hasFriendlyInkUnderfoot(x, z, team = BLUE) {
 }
 function paintPlayerTrail(position) {
   const current = new THREE.Vector3(position.x, 0, position.z);
+  const radius = player.sliding ? 1.28 : (player.sprinting ? 1.14 : 1.08);
   if (!lastPlayerPaintPosition) {
     lastPlayerPaintPosition = current.clone();
-    paintAt(current, BLUE, 1.08, true);
+    paintAt(current, BLUE, radius, true);
     return;
   }
   const distance = lastPlayerPaintPosition.distanceTo(current);
   if (distance > 0.02) {
-    const stamps = Math.max(1, Math.ceil(distance / 0.36));
+    const spacing = player.sliding ? 0.22 : 0.34;
+    const stamps = Math.max(1, Math.ceil(distance / spacing));
     for (let i = 1; i <= stamps; i++) {
       const t = i / stamps;
       const point = new THREE.Vector3().lerpVectors(lastPlayerPaintPosition, current, t);
-      paintAt(point, BLUE, 1.08, true);
+      paintAt(point, BLUE, radius, true);
     }
   }
   lastPlayerPaintPosition.copy(current);
@@ -2572,16 +2613,32 @@ function updatePlayer(delta) {
 
   if (slideQueued) {
     slideQueued = false;
-    if (!player.sliding && player.slideCooldown <= 0 && sprintRequested && player.grounded &&
-        player.velocity.length() > 4.2 && move.lengthSq() > 0.02) {
+    const movingInput = move.lengthSq() > 0.006;
+    const currentSpeed = player.velocity.length();
+    if (!player.sliding && player.slideCooldown <= 0 && player.grounded && (movingInput || currentSpeed > 1.0)) {
+      // Sliding is a direct movement action; it no longer depends on Shift being
+      // held at the exact same time as C / the touch button.
+      const direction = currentSpeed > 2.0
+        ? player.velocity.clone().setY(0).normalize()
+        : move.clone().normalize();
+      if (direction.lengthSq() < 0.01) direction.set(Math.sin(yaw), 0, -Math.cos(yaw));
       player.sliding = true;
-      player.slideTimer = 0.82;
-      player.slideCooldown = 1.0;
-      player.slideDirection.copy(player.velocity).setY(0).normalize();
-      if (player.slideDirection.lengthSq() < 0.01) player.slideDirection.copy(move).normalize();
-      player.slideSpeed = Math.max(13.8, player.velocity.length());
+      player.slideTimer = 0.98;
+      player.slideCooldown = 1.08;
+      player.slideDirection.copy(direction);
+      player.slideSpeed = Math.max(15.6, currentSpeed + 3.0);
+      player.velocity.x = direction.x * player.slideSpeed;
+      player.velocity.z = direction.z * player.slideSpeed;
       player.sprinting = false;
-      showToast('SLIDE  /  LOW PROFILE');
+      const slideFloor = actorSurfaceHeight(player, player.position.x, player.position.z);
+      spawnSplash(new THREE.Vector3(player.position.x, slideFloor, player.position.z), BLUE, slideFloor);
+      cameraShake = Math.max(cameraShake, 0.12);
+      playPop(0.8);
+      showToast('SLIDE BOOST  /  LOW PROFILE');
+    } else if (!player.sliding && player.slideCooldown <= 0 && !player.grounded) {
+      showToast('SLIDE READY ON LANDING');
+    } else if (!player.sliding && player.slideCooldown <= 0) {
+      showToast('MOVE TO SLIDE');
     }
   }
 
@@ -2642,6 +2699,8 @@ function updatePlayer(delta) {
       if (player.verticalVelocity < -2.8) {
         player.landImpact = clamp(Math.abs(player.verticalVelocity) * 0.075, 0.18, 1);
         spawnSplash(new THREE.Vector3(player.position.x, baseY, player.position.z), BLUE, baseY);
+        spawnHitBurst(new THREE.Vector3(player.position.x, baseY + 0.10, player.position.z), BLUE, 0.72);
+        cameraShake = Math.max(cameraShake, player.landImpact * 0.22);
       }
       player.position.y = baseY;
       player.verticalVelocity = 0;
@@ -2668,11 +2727,11 @@ function updatePlayer(delta) {
   animateActor(player, player.sliding ? 1.25 : (player.sprinting ? 1 : move.length()), delta);
   player.effectTimer -= delta;
   if (moving && player.grounded && player.effectTimer <= 0) {
-    spawnMotionSpray(player, player.sliding ? 5 : (player.sprinting ? 3 : 1), player.sliding ? 1.35 : 0.75);
-    player.effectTimer = player.sliding ? 0.065 : (player.sprinting ? 0.11 : 0.24);
+    spawnMotionSpray(player, player.sliding ? 8 : (player.sprinting ? 4 : 1), player.sliding ? 2.0 : 0.9);
+    player.effectTimer = player.sliding ? 0.045 : (player.sprinting ? 0.085 : 0.22);
   }
 
-  if (moving && player.grounded && !player.sliding) {
+  if (moving && player.grounded) {
     paintPlayerTrail(player.position);
   } else if (!lastPlayerPaintPosition) {
     lastPlayerPaintPosition = new THREE.Vector3(player.position.x, 0, player.position.z);
@@ -2864,13 +2923,20 @@ function updateCamera(delta) {
     .addScaledVector(forward, -distance)
     .addScaledVector(right, shoulder)
     .add(new THREE.Vector3(0, height, 0));
+  if (cameraShake > 0.001) {
+    const shake = cameraShake;
+    desired.x += (Math.random() - 0.5) * shake;
+    desired.y += (Math.random() - 0.5) * shake * 0.72;
+    desired.z += (Math.random() - 0.5) * shake;
+    cameraShake = Math.max(0, cameraShake - delta * 2.8);
+  }
   camera.position.lerp(desired, 1 - Math.exp(-20 * delta));
   const lookTarget = target.clone()
     .addScaledVector(forward, 3.35)
     .addScaledVector(right, shoulder)
     .add(new THREE.Vector3(0, 0.10 - pitch * 4.8, 0));
   camera.lookAt(lookTarget);
-  const wantedFov = sliding ? 72 : (player.sprinting || player.flow > 0 ? 70 : 65);
+  const wantedFov = sliding ? 76 : (player.sprinting || player.flow > 0 ? 70 : 65);
   camera.fov = THREE.MathUtils.damp(camera.fov, wantedFov, 8.5, delta);
   camera.updateProjectionMatrix();
 }
