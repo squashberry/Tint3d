@@ -529,11 +529,15 @@ addContainer(8.3, 1.2, 3.2, 5.2, 0x43515b, 1.65);
 
 // Raised centre deck and two walkable ramps.
 block(0, 0.91, 0, 10.5, 0.42, 6.0, 0x465761, { roughness: 0.65, metalness: 0.28, solid: true });
-block(0, 1.14, 0, 9.8, 0.055, 5.5, 0x71868a, { roughness: 0.7, metalness: 0.2 });
+const deckTop = block(0, 1.14, 0, 9.8, 0.055, 5.5, 0x71868a, { roughness: 0.7, metalness: 0.2 });
+const deckTexture = makeDeckSurfaceTexture();
+deckTop.material = new THREE.MeshStandardMaterial({ map: deckTexture, roughness: 0.82, metalness: 0.22 });
 for (let x = -4; x <= 4; x += 2) block(x, 1.19, 0, 0.055, 0.04, 5.35, 0x233d4a);
 const rampAngle = Math.atan2(1.05, 4.0);
 const rampA = block(0, 0.52, 4.85, 5.8, 0.34, 4.25, 0x52636b, { rotation: { x: rampAngle } });
 const rampB = block(0, 0.52, -4.85, 5.8, 0.34, 4.25, 0x52636b, { rotation: { x: -rampAngle } });
+rampA.material = new THREE.MeshStandardMaterial({ map: deckTexture, roughness: 0.88, metalness: 0.12 });
+rampB.material = rampA.material;
 for (let z = -6.5; z <= 6.5; z += 1) {
   block(-2.7, 0.12, z, 0.11, 0.06, 0.28, 0xffc06b);
   block(2.7, 0.12, z, 0.11, 0.06, 0.28, 0xffc06b);
@@ -611,6 +615,392 @@ for (const x of [-24, 24]) {
   cylinder(x, 5.1, -23, 0.23, 10.2, 0x37555e);
   block(x, 10.35, -23, 1.05, 0.22, 1.05, 0xffc278, { emissive: 0x9b582a });
 }
+
+
+// BREAKWATER VISUAL REBUILD --------------------------------------------------
+// The arena now has a recognizable waterfront-market silhouette: layered
+// vendor roofs, cargo stacks, gantry detail, dock hardware and overhead bunting.
+// Repeated small props use instancing to keep the low-end GPU draw-call budget down.
+
+function makeDeckSurfaceTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 512;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#53666a';
+  ctx.fillRect(0, 0, 512, 512);
+  const shade = ctx.createLinearGradient(0, 0, 512, 512);
+  shade.addColorStop(0, 'rgba(220,235,221,.20)');
+  shade.addColorStop(.5, 'rgba(90,116,119,.02)');
+  shade.addColorStop(1, 'rgba(9,28,37,.38)');
+  ctx.fillStyle = shade;
+  ctx.fillRect(0, 0, 512, 512);
+  // Raised diamond tread, shallow enough not to shimmer at distance.
+  ctx.strokeStyle = 'rgba(220,236,220,.17)';
+  ctx.lineWidth = 2;
+  for (let y = -256; y < 768; y += 22) {
+    ctx.beginPath();
+    for (let x = -256; x < 768; x += 22) {
+      ctx.moveTo(x, y + 11);
+      ctx.lineTo(x + 11, y);
+      ctx.lineTo(x + 22, y + 11);
+      ctx.lineTo(x + 11, y + 22);
+      ctx.closePath();
+    }
+    ctx.stroke();
+  }
+  ctx.strokeStyle = 'rgba(16,34,41,.25)';
+  ctx.lineWidth = 5;
+  ctx.strokeRect(8, 8, 496, 496);
+  ctx.strokeStyle = 'rgba(240,194,112,.88)';
+  ctx.lineWidth = 12;
+  ctx.setLineDash([26, 16]);
+  ctx.strokeRect(17, 17, 478, 478);
+  ctx.setLineDash([]);
+  ctx.fillStyle = 'rgba(7,24,31,.67)';
+  ctx.fillRect(28, 34, 160, 34);
+  ctx.fillStyle = '#e8f0dc';
+  ctx.font = '900 20px sans-serif';
+  ctx.fillText('BW  /  DOCK 01', 39, 58);
+  ctx.fillStyle = 'rgba(231,242,222,.50)';
+  ctx.font = '800 11px sans-serif';
+  ctx.fillText('NON-SLIP SERVICE DECK', 300, 476);
+  for (let i = 0; i < 52; i++) {
+    const x = 24 + Math.random() * 464;
+    const y = 24 + Math.random() * 464;
+    ctx.fillStyle = i % 2 ? 'rgba(255,255,255,.12)' : 'rgba(5,20,27,.17)';
+    ctx.fillRect(x, y, 2 + Math.random() * 5, 1);
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
+  return texture;
+}
+
+function makeAwningTexture(base, stripe, label) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#' + base.toString(16).padStart(6, '0');
+  ctx.fillRect(0, 0, 512, 256);
+  for (let x = 0; x < 512; x += 64) {
+    ctx.fillStyle = '#' + stripe.toString(16).padStart(6, '0');
+    ctx.fillRect(x, 0, 27, 256);
+    ctx.fillStyle = 'rgba(255,255,255,.10)';
+    ctx.fillRect(x + 27, 0, 4, 256);
+  }
+  const shade = ctx.createLinearGradient(0, 0, 0, 256);
+  shade.addColorStop(0, 'rgba(255,255,255,.20)');
+  shade.addColorStop(.55, 'rgba(255,255,255,.02)');
+  shade.addColorStop(1, 'rgba(0,0,0,.24)');
+  ctx.fillStyle = shade;
+  ctx.fillRect(0, 0, 512, 256);
+  ctx.fillStyle = 'rgba(8,25,31,.78)';
+  ctx.fillRect(18, 185, 476, 52);
+  ctx.fillStyle = '#f4efdc';
+  ctx.font = '900 28px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(label, 256, 219);
+  ctx.strokeStyle = 'rgba(255,255,255,.35)';
+  ctx.lineWidth = 3;
+  for (let x = 10; x < 512; x += 32) {
+    ctx.beginPath(); ctx.moveTo(x, 8); ctx.lineTo(x, 24); ctx.stroke();
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
+  return texture;
+}
+
+function makePortSignTexture(title, subtitle, accent) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 768;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#102d37';
+  ctx.fillRect(0, 0, 768, 256);
+  ctx.fillStyle = '#' + accent.toString(16).padStart(6, '0');
+  ctx.fillRect(0, 0, 22, 256);
+  ctx.fillRect(22, 220, 746, 10);
+  ctx.fillStyle = 'rgba(228,242,223,.10)';
+  ctx.fillRect(42, 28, 684, 2);
+  ctx.fillStyle = '#f1f1dd';
+  ctx.font = '900 76px sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText(title, 52, 126);
+  ctx.fillStyle = '#9fb9b5';
+  ctx.font = '800 24px sans-serif';
+  ctx.fillText(subtitle, 56, 177);
+  ctx.fillStyle = '#' + accent.toString(16).padStart(6, '0');
+  ctx.font = '900 23px sans-serif';
+  ctx.textAlign = 'right';
+  ctx.fillText('BW / 414', 720, 64);
+  ctx.fillStyle = 'rgba(236,244,222,.52)';
+  ctx.font = '700 14px sans-serif';
+  ctx.fillText('BREAKWATER COASTAL EXCHANGE', 720, 193);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+function addMarketStall(x, z, baseY, roofColor, stripeColor, title, serial) {
+  // Stalls sit on the large edge containers, adding a second playable-world
+  // layer in silhouette without obstructing the central firing lanes.
+  const roof = block(x, baseY + 2.48, z, 7.5, 0.18, 4.65, roofColor, {
+    roughness: 0.96, metalness: 0.0
+  });
+  roof.material = new THREE.MeshStandardMaterial({
+    map: makeAwningTexture(roofColor, stripeColor, title),
+    roughness: 0.98, metalness: 0.0, side: THREE.DoubleSide
+  });
+  // Four slim legs and two braces, deliberately brighter than the container below.
+  for (const dx of [-3.35, 3.35]) {
+    for (const dz of [-1.92, 1.92]) {
+      block(x + dx, baseY + 1.30, z + dz, 0.13, 2.55, 0.13, 0x344c52);
+      block(x + dx, baseY + 0.22, z + dz, 0.34, 0.12, 0.34, stripeColor);
+    }
+    const brace = block(x + dx, baseY + 1.93, z + 0.65, 0.085, 1.05, 0.085, 0xa4b1a2);
+    brace.rotation.z = dx > 0 ? -0.56 : 0.56;
+  }
+  block(x, baseY + 1.43, z - 1.78, 6.7, 1.55, 0.16, 0x243a42);
+  block(x, baseY + 0.60, z + 0.72, 5.65, 1.10, 1.18, 0x586b68);
+  block(x, baseY + 1.18, z + 0.72, 5.95, 0.12, 1.30, 0xc5c5a9);
+  // Bright fabric valance under the front edge.
+  block(x, baseY + 2.17, z + 2.23, 7.34, 0.48, 0.11, stripeColor);
+  for (let i = -3; i <= 3; i++) {
+    block(x + i * 0.52, baseY + 1.87, z + 2.25, 0.045, 0.12, 0.12, 0xf1e7cd);
+  }
+  // Backlit vendor board is a single textured mesh, not a wall of text boxes.
+  const sign = mesh(
+    new THREE.PlaneGeometry(4.9, 0.72),
+    new THREE.MeshBasicMaterial({
+      map: makePortSignTexture(title, 'QUAY MARKET  /  STALL ' + String(serial).padStart(2, '0'), stripeColor),
+      toneMapped: false
+    }),
+    scene, x, baseY + 1.47, z + 2.34
+  );
+  sign.layers.enable(1);
+  // Two stacked goods crates and a small counter display.
+  block(x - 2.12, baseY + 1.40, z + 0.38, 0.76, 0.62, 0.72, 0x9a714b);
+  block(x + 2.02, baseY + 1.39, z + 0.38, 0.72, 0.60, 0x78938a);
+  block(x - 2.12, baseY + 1.73, z + 0.38, 0.78, 0.055, 0.74, 0x293e43);
+  block(x + 2.02, baseY + 1.72, z + 0.38, 0.74, 0.055, 0.74, 0x293e43);
+}
+
+addMarketStall(-15.2, 11.2, 2.64, 0xe0b96e, 0x236b77, 'TIDE GOODS', 1);
+addMarketStall(15.1, 11.8, 2.64, 0x526c68, 0xff855e, 'DOCK FRESH', 2);
+addMarketStall(-15.2, -11.4, 2.64, 0x637a83, 0xffbf72, 'PORT SUPPLY', 3);
+addMarketStall(14.8, -12.2, 2.64, 0x9c694d, 0x20d8e9, 'QUAY CANTEEN', 4);
+
+// A large, readable terminal sign replaces the previously blank dark slab.
+const terminalFace = mesh(
+  new THREE.PlaneGeometry(10.2, 1.58),
+  new THREE.MeshBasicMaterial({
+    map: makePortSignTexture('BREAKWATER', 'TINT3D FIELD SERIES  /  COASTAL TERMINAL 001', 0xff855e),
+    toneMapped: false
+  }),
+  scene, 0, 5.88, -18.72
+);
+terminalFace.layers.enable(1);
+
+// Cargo handling details: repeated boxes share one material/geometry and one draw call.
+function makeCrateTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#a47c50';
+  ctx.fillRect(0, 0, 256, 256);
+  const grad = ctx.createLinearGradient(0, 0, 256, 256);
+  grad.addColorStop(0, 'rgba(255,236,184,.22)');
+  grad.addColorStop(1, 'rgba(33,24,16,.31)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 256, 256);
+  ctx.strokeStyle = 'rgba(48,35,23,.48)';
+  ctx.lineWidth = 5;
+  for (let y = 20; y < 256; y += 36) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(256, y + 3); ctx.stroke();
+  }
+  ctx.fillStyle = 'rgba(27,42,43,.78)';
+  ctx.fillRect(30, 72, 196, 91);
+  ctx.fillStyle = '#f1e9cf';
+  ctx.font = '900 31px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('BW / 414', 128, 110);
+  ctx.font = '800 13px sans-serif';
+  ctx.fillText('FRAGILE  •  KEEP DRY', 128, 137);
+  ctx.fillStyle = '#e8a85c';
+  ctx.fillRect(30, 177, 196, 8);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+const crateMaterial = new THREE.MeshStandardMaterial({
+  map: makeCrateTexture(), roughness: 0.92, metalness: 0.0
+});
+const cratePlacements = [
+  [-12.0, 0.52, -5.6, 1.20, 1.04, 1.05, -0.08],
+  [-12.7, 0.53, -4.7, 1.05, 1.06, 1.00, 0.10],
+  [-12.0, 1.55, -5.6, 0.95, 0.98, 0.92, -0.04],
+  [12.1, 0.52, 5.7, 1.20, 1.04, 1.05, 0.08],
+  [12.8, 0.53, 4.7, 1.05, 1.06, 1.00, -0.10],
+  [12.1, 1.55, 5.7, 0.95, 0.98, 0.92, 0.04],
+  [-9.4, 0.47, 10.0, 0.86, 0.90, 0.82, 0.10],
+  [9.5, 0.47, -10.0, 0.86, 0.90, 0.82, -0.10],
+  [-17.5, 0.45, 2.4, 0.82, 0.90, 0.82, 0.08],
+  [17.5, 0.45, -2.4, 0.82, 0.90, 0.82, -0.08]
+];
+const crateInstances = new THREE.InstancedMesh(shared.box, crateMaterial, cratePlacements.length);
+const crateDummy = new THREE.Object3D();
+cratePlacements.forEach((p, i) => {
+  crateDummy.position.set(p[0], p[1], p[2]);
+  crateDummy.rotation.set(0, p[6], 0);
+  crateDummy.scale.set(p[3], p[4], p[5]);
+  crateDummy.updateMatrix();
+  crateInstances.setMatrixAt(i, crateDummy.matrix);
+  solidBounds.push({
+    x: p[0], z: p[2], halfX: p[3] * 0.5, halfZ: p[5] * 0.5,
+    minY: p[1] - p[4] * 0.5, maxY: p[1] + p[4] * 0.5
+  });
+});
+crateInstances.instanceMatrix.needsUpdate = true;
+crateInstances.layers.enable(1);
+scene.add(crateInstances);
+
+// Dock barrels, cable drums and bollard caps add round forms among the boxy cargo.
+const drumMaterial = new THREE.MeshStandardMaterial({ color: 0x3d7780, roughness: 0.64, metalness: 0.40 });
+const drumPositions = [
+  [-13.7, 0.67, -7.1, 0.42, 1.30, 0.42],
+  [13.7, 0.67, 7.1, 0.42, 1.30, 0.42],
+  [-16.6, 0.57, 5.2, 0.36, 1.08, 0.36],
+  [16.6, 0.57, -5.2, 0.36, 1.08, 0.36],
+  [0, 0.48, -15.2, 0.54, 0.94, 0.54],
+  [0, 0.48, 15.2, 0.54, 0.94, 0.54]
+];
+const drumInstances = new THREE.InstancedMesh(shared.cylinder, drumMaterial, drumPositions.length);
+drumPositions.forEach((p, i) => {
+  crateDummy.position.set(p[0], p[1], p[2]);
+  crateDummy.rotation.set(0, 0, 0);
+  crateDummy.scale.set(p[3], p[4], p[5]);
+  crateDummy.updateMatrix();
+  drumInstances.setMatrixAt(i, crateDummy.matrix);
+  solidBounds.push({
+    x: p[0], z: p[2], halfX: p[3], halfZ: p[5],
+    minY: p[1] - p[4] * 0.5, maxY: p[1] + p[4] * 0.5
+  });
+});
+drumInstances.instanceMatrix.needsUpdate = true;
+drumInstances.layers.enable(1);
+scene.add(drumInstances);
+
+// Elevated deck railings with diagonal braces: readable silhouette, restrained geometry.
+for (const x of [-5.25, 5.25]) {
+  for (let z = -2.45; z <= 2.46; z += 0.82) {
+    block(x, 1.57, z, 0.08, 0.82, 0.08, 0x273f47);
+  }
+  block(x, 1.94, 0, 0.12, 0.12, 5.10, 0x9aa9a0);
+  block(x, 1.32, 0, 0.10, 0.10, 5.10, 0x526f75);
+}
+
+// A scalloped line of market pennants and warm bulbs breaks the empty sky band.
+const flagPositions = [];
+const flagColors = [0x20d8e9, 0xff855e, 0xf3c16c, 0xe7e4c9, 0x6d9f94];
+const flagVerts = [];
+const flagColorsFlat = [];
+const flagCount = 13;
+for (let i = 0; i < flagCount; i++) {
+  const x0 = -18 + i * 3.0;
+  const x1 = x0 + 2.7;
+  const y0 = 6.8 - Math.sin(i / (flagCount - 1) * Math.PI) * 0.72;
+  const col = new THREE.Color(flagColors[i % flagColors.length]);
+  flagVerts.push(x0, y0, 7.4, x1, y0 - 0.03, 7.4, (x0 + x1) * 0.5, y0 - 0.78, 7.4);
+  for (let v = 0; v < 3; v++) flagColorsFlat.push(col.r, col.g, col.b);
+}
+const flagGeometry = new THREE.BufferGeometry();
+flagGeometry.setAttribute('position', new THREE.Float32BufferAttribute(flagVerts, 3));
+flagGeometry.setAttribute('color', new THREE.Float32BufferAttribute(flagColorsFlat, 3));
+flagGeometry.computeVertexNormals();
+const flagMesh = new THREE.Mesh(flagGeometry, new THREE.MeshBasicMaterial({
+  vertexColors: true, side: THREE.DoubleSide, toneMapped: false
+}));
+flagMesh.layers.enable(1);
+scene.add(flagMesh);
+const wireCurve = new THREE.CatmullRomCurve3([
+  new THREE.Vector3(-19, 6.92, 7.35),
+  new THREE.Vector3(-10, 6.15, 7.35),
+  new THREE.Vector3(0, 5.98, 7.35),
+  new THREE.Vector3(10, 6.15, 7.35),
+  new THREE.Vector3(19, 6.92, 7.35)
+]);
+mesh(new THREE.TubeGeometry(wireCurve, 36, 0.025, 5, false), mat('market-wire', 0x354c52, 0.8, 0.22), scene);
+const bulbMaterial = new THREE.MeshBasicMaterial({ color: 0xffd28a, toneMapped: false });
+const bulbInstances = new THREE.InstancedMesh(shared.smallSphere, bulbMaterial, 11);
+for (let i = 0; i < 11; i++) {
+  const x = -16 + i * 3.2;
+  const y = 6.15 + Math.abs(x) / 19 * 0.72;
+  crateDummy.position.set(x, y - 0.12, 7.35);
+  crateDummy.scale.setScalar(0.085);
+  crateDummy.updateMatrix();
+  bulbInstances.setMatrixAt(i, crateDummy.matrix);
+}
+bulbInstances.instanceMatrix.needsUpdate = true;
+bulbInstances.layers.enable(1);
+scene.add(bulbInstances);
+
+// Extra scaffold and braces make the central gantry read as a real structure.
+for (const x of [-10, 10]) {
+  for (const y of [5.2, 6.5, 7.8]) {
+    block(x, y, -0.12, 0.30, 0.08, 0.32, 0x849a96);
+  }
+  const brace1 = block(x * 0.75, 7.25, 0, 0.12, 2.2, 0.12, 0x708b8c);
+  brace1.rotation.z = x < 0 ? -0.35 : 0.35;
+  const brace2 = block(x * 0.75, 5.55, 0, 0.12, 2.2, 0.12, 0x708b8c);
+  brace2.rotation.z = x < 0 ? 0.35 : -0.35;
+}
+
+// A small strip of harbour water and soft cloud silhouettes give the yard a location.
+const waterCanvas = document.createElement('canvas');
+waterCanvas.width = 512;
+waterCanvas.height = 256;
+const waterCtx = waterCanvas.getContext('2d');
+const waterGrad = waterCtx.createLinearGradient(0, 0, 512, 256);
+waterGrad.addColorStop(0, '#367c83');
+waterGrad.addColorStop(0.55, '#245c68');
+waterGrad.addColorStop(1, '#183e50');
+waterCtx.fillStyle = waterGrad;
+waterCtx.fillRect(0, 0, 512, 256);
+for (let i = 0; i < 185; i++) {
+  const y = Math.random() * 256;
+  const x = Math.random() * 512;
+  waterCtx.strokeStyle = i % 3 ? 'rgba(194,235,215,.22)' : 'rgba(255,203,133,.20)';
+  waterCtx.lineWidth = 1 + Math.random() * 2.5;
+  waterCtx.beginPath();
+  waterCtx.moveTo(x, y);
+  waterCtx.lineTo(x + 10 + Math.random() * 50, y + (Math.random() - 0.5) * 2);
+  waterCtx.stroke();
+}
+const waterTexture = new THREE.CanvasTexture(waterCanvas);
+waterTexture.colorSpace = THREE.SRGBColorSpace;
+waterTexture.wrapS = THREE.RepeatWrapping;
+waterTexture.wrapT = THREE.RepeatWrapping;
+waterTexture.repeat.set(3, 2);
+const harbourWater = mesh(
+  new THREE.PlaneGeometry(72, 28),
+  new THREE.MeshStandardMaterial({ map: waterTexture, roughness: 0.34, metalness: 0.30 }),
+  scene, 0, -0.86, -39
+);
+harbourWater.rotation.x = -Math.PI / 2;
+harbourWater.layers.enable(1);
+for (let i = 0; i < 7; i++) {
+  const x = -27 + i * 9;
+  cylinder(x, 0.18, -22.8, 0.34, 0.36, i % 2 ? 0x526b68 : 0x344e57);
+  block(x, 0.98, -22.8, 0.12, 1.70, 0.12, 0x334d54);
+  block(x, 1.82, -22.8, 0.56, 0.10, 0.56, 0xffbd72);
+}
+
+// ---------------------------------------------------------------------------
 
 function groundHeight(x, z) {
   if (Math.abs(x) <= 5.05 && z >= -2.9 && z <= 2.9) return 1.05;
@@ -1536,6 +1926,19 @@ function resetPaint() {
   owners.fill(0);
   for (const wall of paintableWalls) {
     wall.ctx.clearRect(0, 0, wall.canvas.width, wall.canvas.height);
+    wall.ctx.fillStyle = 'rgba(12,31,39,.30)';
+    wall.ctx.fillRect(18, 18, 190, 42);
+    wall.ctx.fillStyle = 'rgba(231,241,224,.82)';
+    wall.ctx.font = '900 23px sans-serif';
+    wall.ctx.fillText('BREAKWATER  /  BW', 29, 46);
+    wall.ctx.fillStyle = 'rgba(255,190,111,.78)';
+    wall.ctx.fillRect(22, 221, 150, 7);
+    wall.ctx.fillStyle = 'rgba(231,241,224,.36)';
+    wall.ctx.font = '800 11px sans-serif';
+    wall.ctx.fillText('PORT AUTHORITY  •  KEEP CLEAR', 220, 238);
+    wall.ctx.strokeStyle = 'rgba(234,243,224,.38)';
+    wall.ctx.lineWidth = 3;
+    wall.ctx.strokeRect(10, 10, 492, 236);
     wall.texture.needsUpdate = true;
   }
   drawArenaBaseArtwork(paintCtx);
