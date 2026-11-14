@@ -129,6 +129,28 @@ const paintCanvas = document.createElement('canvas');
 paintCanvas.width = 1024;
 paintCanvas.height = 1024;
 const paintCtx = paintCanvas.getContext('2d', { alpha: false });
+
+const paintRoughnessCanvas = document.createElement('canvas');
+paintRoughnessCanvas.width = 1024;
+paintRoughnessCanvas.height = 1024;
+const paintRoughnessCtx = paintRoughnessCanvas.getContext('2d', { alpha: false });
+paintRoughnessCtx.fillStyle = '#f4f4f4';
+paintRoughnessCtx.fillRect(0, 0, 1024, 1024);
+
+const paintHeightCanvas = document.createElement('canvas');
+paintHeightCanvas.width = 1024;
+paintHeightCanvas.height = 1024;
+const paintHeightCtx = paintHeightCanvas.getContext('2d', { alpha: false });
+paintHeightCtx.fillStyle = '#080808';
+paintHeightCtx.fillRect(0, 0, 1024, 1024);
+
+const paintRoughnessTexture = new THREE.CanvasTexture(paintRoughnessCanvas);
+const paintHeightTexture = new THREE.CanvasTexture(paintHeightCanvas);
+for (const texture of [paintRoughnessTexture, paintHeightTexture]) {
+  texture.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
+  texture.generateMipmaps = true;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+}
 function drawArenaBaseArtwork(ctx) {
   const W = 1024;
   const H = 1024;
@@ -386,7 +408,16 @@ paintTexture.generateMipmaps = true;
 paintTexture.minFilter = THREE.LinearMipmapLinearFilter;
 const floor = mesh(
   new THREE.PlaneGeometry(ARENA, ARENA),
-  new THREE.MeshStandardMaterial({ map: paintTexture, roughness: 0.93, metalness: 0.015 }),
+  new THREE.MeshPhysicalMaterial({
+    map: paintTexture,
+    roughness: 0.96,
+    roughnessMap: paintRoughnessTexture,
+    bumpMap: paintHeightTexture,
+    bumpScale: 0.038,
+    metalness: 0.015,
+    clearcoat: 0.34,
+    clearcoatRoughness: 0.12
+  }),
   scene, 0, -0.045, 0
 );
 floor.layers.enable(1);
@@ -1221,6 +1252,66 @@ function cellAt(x, z) {
   if (gx < 0 || gz < 0 || gx >= GRID || gz >= GRID) return -1;
   return gz * GRID + gx;
 }
+function stampWetSurface(px, py, r, points, seed) {
+  const trace = (ctx) => {
+    ctx.beginPath();
+    points.forEach((point, i) => {
+      if (i === 0) ctx.moveTo(point[0], point[1]);
+      else ctx.lineTo(point[0], point[1]);
+    });
+    ctx.closePath();
+  };
+
+  paintRoughnessCtx.save();
+  trace(paintRoughnessCtx);
+  paintRoughnessCtx.clip();
+  const gloss = paintRoughnessCtx.createRadialGradient(
+    px - r * 0.22, py - r * 0.24, r * 0.04, px, py, r * 1.03
+  );
+  gloss.addColorStop(0, 'rgba(20,20,20,.98)');
+  gloss.addColorStop(.48, 'rgba(42,42,42,.94)');
+  gloss.addColorStop(.82, 'rgba(78,78,78,.88)');
+  gloss.addColorStop(1, 'rgba(130,130,130,.76)');
+  paintRoughnessCtx.globalCompositeOperation = 'multiply';
+  paintRoughnessCtx.fillStyle = gloss;
+  paintRoughnessCtx.fillRect(px-r*1.2, py-r*1.2, r*2.4, r*2.4);
+  paintRoughnessCtx.globalCompositeOperation = 'screen';
+  paintRoughnessCtx.globalAlpha = 0.16;
+  paintRoughnessCtx.strokeStyle = '#777';
+  paintRoughnessCtx.lineWidth = Math.max(1.5, r * 0.018);
+  for (let i = 0; i < 3; i++) {
+    paintRoughnessCtx.beginPath();
+    paintRoughnessCtx.ellipse(px-r*.08, py-r*.08, r*(.34+i*.13), r*(.24+i*.105), seed*.3, Math.PI*1.12, Math.PI*1.88);
+    paintRoughnessCtx.stroke();
+  }
+  paintRoughnessCtx.restore();
+
+  paintHeightCtx.save();
+  trace(paintHeightCtx);
+  paintHeightCtx.clip();
+  const height = paintHeightCtx.createRadialGradient(
+    px-r*.20, py-r*.22, r*.02, px, py, r*1.03
+  );
+  height.addColorStop(0, 'rgba(230,230,230,.92)');
+  height.addColorStop(.38, 'rgba(170,170,170,.82)');
+  height.addColorStop(.72, 'rgba(92,92,92,.48)');
+  height.addColorStop(1, 'rgba(20,20,20,.08)');
+  paintHeightCtx.globalCompositeOperation = 'lighter';
+  paintHeightCtx.fillStyle = height;
+  paintHeightCtx.fillRect(px-r*1.2, py-r*1.2, r*2.4, r*2.4);
+  paintHeightCtx.fillStyle = 'rgba(230,230,230,.52)';
+  for (let i = 0; i < 4; i++) {
+    const a = seed*4 + i*1.57;
+    const d = r*(.72+(i%2)*.12);
+    paintHeightCtx.beginPath();
+    paintHeightCtx.arc(px+Math.cos(a)*d, py+Math.sin(a)*d, r*(.06+(i%2)*.025), 0, Math.PI*2);
+    paintHeightCtx.fill();
+  }
+  paintHeightCtx.restore();
+  paintRoughnessTexture.needsUpdate = true;
+  paintHeightTexture.needsUpdate = true;
+}
+
 function drawSplat(position, team, radius, seed = Math.random()) {
   const color = TEAM[team].ink;
   const px = ((position.x + HALF) / ARENA) * paintCanvas.width;
@@ -1288,6 +1379,7 @@ function drawSplat(position, team, radius, seed = Math.random()) {
     paintCtx.stroke();
   }
   paintCtx.restore();
+  stampWetSurface(px, py, r, points, seed);
   paintTexture.needsUpdate = true;
 }
 let scoreCache = { blue: -1, orange: -1 };
@@ -1424,31 +1516,53 @@ function updateActorShadow(actor) {
   actor.shadow.scale.set(1.35 + height * 0.35, 0.83 + height * 0.22, 1);
   actor.shadow.material.opacity = clamp(0.72 - height * 0.22, 0.26, 0.72);
 }
-const projectileGeometry = new THREE.SphereGeometry(0.13, 10, 8);
+const projectileGeometry = new THREE.SphereGeometry(0.14, 14, 10);
 const projectileMaterials = {
-  1: new THREE.MeshBasicMaterial({ color: TEAM[1].ink }),
-  2: new THREE.MeshBasicMaterial({ color: TEAM[2].ink })
+  1: new THREE.MeshPhysicalMaterial({ color: TEAM[1].ink, roughness: 0.13, clearcoat: 1.0, clearcoatRoughness: 0.055, emissive: 0x073c50, emissiveIntensity: 0.12 }),
+  2: new THREE.MeshPhysicalMaterial({ color: TEAM[2].ink, roughness: 0.13, clearcoat: 1.0, clearcoatRoughness: 0.055, emissive: 0x542014, emissiveIntensity: 0.10 })
 };
+const splashMaterials = {
+  1: new THREE.MeshPhysicalMaterial({ color: TEAM[1].ink, roughness: 0.10, clearcoat: 1.0, clearcoatRoughness: 0.04, transparent: true, opacity: 0.88, side: THREE.DoubleSide, depthWrite: false }),
+  2: new THREE.MeshPhysicalMaterial({ color: TEAM[2].ink, roughness: 0.10, clearcoat: 1.0, clearcoatRoughness: 0.04, transparent: true, opacity: 0.88, side: THREE.DoubleSide, depthWrite: false })
+};
+const splashPuddleGeometry = new THREE.CircleGeometry(0.44, 18);
 const projectiles = [];
 const particles = [];
 function spawnSplash(position, team) {
-  const color = team === BLUE ? 0x20d8e9 : 0xff7652;
-  const ring = new THREE.Mesh(new THREE.RingGeometry(0.15, 0.25, 18), new THREE.MeshBasicMaterial({
-    color, transparent: true, opacity: 0.82, side: THREE.DoubleSide, depthWrite: false
-  }));
+  const ground = groundHeight(position.x, position.z) + 0.055;
+  const puddleMaterial = splashMaterials[team].clone();
+  const puddle = new THREE.Mesh(splashPuddleGeometry, puddleMaterial);
+  puddle.rotation.x = -Math.PI / 2;
+  puddle.position.set(position.x, ground, position.z);
+  const s = 0.78 + Math.random() * 0.30;
+  puddle.scale.set(s, s * (0.70 + Math.random() * 0.25), 1);
+  puddle.layers.disable(1);
+  scene.add(puddle);
+  particles.push({ mesh: puddle, life: 0.42, maxLife: 0.42, puddle: true, material: puddleMaterial });
+
+  const ringMaterial = splashMaterials[team].clone();
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.18, 0.30, 20), ringMaterial);
   ring.rotation.x = -Math.PI / 2;
-  ring.position.set(position.x, groundHeight(position.x, position.z) + 0.07, position.z);
+  ring.position.set(position.x, ground + 0.018, position.z);
+  ring.scale.set(0.9, 0.78, 1);
+  ring.layers.disable(1);
   scene.add(ring);
-  particles.push({ mesh: ring, life: 0.42, maxLife: 0.42, ring: true });
-  for (let i = 0; i < 6; i++) {
-    const dot = mesh(shared.smallSphere, projectileMaterials[team], scene, position.x, groundHeight(position.x, position.z) + 0.1, position.z);
+  particles.push({ mesh: ring, life: 0.40, maxLife: 0.40, ring: true, material: ringMaterial });
+
+  for (let i = 0; i < 7; i++) {
+    const dot = mesh(shared.sphere, projectileMaterials[team], scene, position.x, ground + 0.10, position.z);
     dot.layers.disable(1);
     const angle = Math.random() * Math.PI * 2;
-    const scale = 0.075 + Math.random() * 0.09;
-    dot.scale.set(scale * 1.35, scale * 0.82, scale);
+    const scale = 0.055 + Math.random() * 0.075;
+    dot.scale.set(scale * (0.95 + Math.random() * 0.6), scale * 1.18, scale * (0.95 + Math.random() * 0.6));
+    dot.rotation.z = angle;
     particles.push({
-      mesh: dot, life: 0.36 + Math.random() * 0.24, maxLife: 0.60,
-      velocity: new THREE.Vector3(Math.cos(angle) * (1.4 + Math.random() * 2.5), 1.3 + Math.random() * 2.2, Math.sin(angle) * (1.4 + Math.random() * 2.5))
+      mesh: dot, life: 0.34 + Math.random() * 0.25, maxLife: 0.60,
+      velocity: new THREE.Vector3(
+        Math.cos(angle) * (1.55 + Math.random() * 2.6),
+        1.45 + Math.random() * 2.3,
+        Math.sin(angle) * (1.55 + Math.random() * 2.6)
+      )
     });
   }
 }
@@ -1458,21 +1572,120 @@ function updateParticles(delta) {
     p.life -= delta;
     const progress = 1 - Math.max(0, p.life) / p.maxLife;
     if (p.ring) {
-      p.mesh.scale.setScalar(1 + progress * 2.8);
-      p.mesh.material.opacity = 0.72 * (1 - progress);
+      p.mesh.scale.set(0.9 + progress * 2.8, 0.78 + progress * 2.45, 1);
+      p.mesh.material.opacity = 0.70 * (1 - progress);
+    } else if (p.puddle) {
+      p.mesh.scale.x *= 1 + delta * 0.55;
+      p.mesh.scale.y *= 1 + delta * 0.42;
+      p.mesh.material.opacity = 0.86 * (1 - progress);
     } else {
       p.mesh.position.addScaledVector(p.velocity, delta);
       p.velocity.y -= 6.5 * delta;
-      p.mesh.scale.multiplyScalar(1 - delta * 1.4);
+      p.mesh.rotation.x += delta * 3.4;
+      p.mesh.rotation.z += delta * 2.2;
+      p.mesh.scale.multiplyScalar(1 - delta * 1.25);
     }
     if (p.life <= 0) {
       scene.remove(p.mesh);
-      if (!p.ring) p.mesh.material = projectileMaterials[1];
-      else p.mesh.material.dispose();
-      if (!p.ring) p.mesh.scale.set(1, 1, 1);
+      if (p.material) p.material.dispose();
+      if (!p.ring && !p.puddle) p.mesh.scale.set(1, 1, 1);
       particles.splice(i, 1);
     }
   }
+}
+
+const characterLoader = new GLTFLoader();
+const characterLetters = 'abcde'.split('');
+const characterMaterialCache = new Map();
+
+function loadCrewCharacter(actor) {
+  const letter = characterLetters[actor.variation % characterLetters.length];
+  const url = import.meta.env.BASE_URL + 'assets/kenney/blocky-characters/character-' + letter + '.glb';
+  characterLoader.load(url, (gltf) => {
+    const rig = gltf.scene;
+    rig.name = 'Tint3d crew ' + letter.toUpperCase();
+    rig.rotation.y = Math.PI;
+    rig.scale.setScalar(1.0);
+    rig.traverse((node) => {
+      if (!node.isMesh) return;
+      node.layers.enable(1);
+      node.castShadow = false;
+      node.receiveShadow = false;
+      const sourceMaterials = Array.isArray(node.material) ? node.material : [node.material];
+      const converted = sourceMaterials.map((source) => {
+        const key = source.map?.uuid || source.uuid;
+        if (characterMaterialCache.has(key)) return characterMaterialCache.get(key);
+        const toon = new THREE.MeshToonMaterial({
+          map: source.map || null, color: 0xffffff, gradientMap: toonRamp,
+          side: source.side || THREE.FrontSide
+        });
+        if (source.map) {
+          source.map.colorSpace = THREE.SRGBColorSpace;
+          source.map.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
+        }
+        characterMaterialCache.set(key, toon);
+        return toon;
+      });
+      node.material = Array.isArray(node.material) ? converted : converted[0];
+      node.frustumCulled = true;
+      if (actor.player) node.layers.disable(1);
+      else node.layers.enable(1);
+    });
+
+    const weapon = actor.group.userData.weapon;
+    for (const child of [...actor.group.children]) {
+      if (child !== weapon) actor.group.remove(child);
+    }
+    actor.group.add(rig);
+    actor.group.userData.rig = rig;
+
+    const accent = new THREE.MeshToonMaterial({
+      color: actor.team === BLUE ? 0x20d8e9 : 0xff7652,
+      gradientMap: toonRamp,
+      emissive: actor.team === BLUE ? 0x07566a : 0x69291d,
+      emissiveIntensity: 0.28
+    });
+    const trim = new THREE.MeshToonMaterial({
+      color: actor.team === BLUE ? 0x123c4a : 0x4d2527,
+      gradientMap: toonRamp
+    });
+    const crest = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.18, 0.055), accent);
+    crest.position.set(0, 1.36, 0.37);
+    rig.add(crest);
+    const crestLine = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.035, 0.025), trim);
+    crestLine.position.set(0, 1.36, 0.405);
+    rig.add(crestLine);
+    const shoulderGeometry = new THREE.SphereGeometry(0.13, 9, 7);
+    for (const side of [-1, 1]) {
+      const pin = new THREE.Mesh(shoulderGeometry, accent);
+      pin.position.set(side * 0.43, 1.48, 0.04);
+      pin.scale.set(1.15, 0.74, 0.62);
+      rig.add(pin);
+    }
+    rig.traverse((node) => {
+      if (node.isMesh) {
+        node.layers.enable(1);
+        if (actor.player) node.layers.disable(1);
+      }
+    });
+
+    const mixer = new THREE.AnimationMixer(rig);
+    const actions = {};
+    for (const clip of gltf.animations) actions[clip.name] = mixer.clipAction(clip);
+    actor.group.userData.mixer = mixer;
+    actor.group.userData.animationActions = actions;
+    actor.group.userData.currentAnimation = '';
+    actor.group.userData.shotTimer = 0;
+    actor.group.userData.arms = [];
+    actor.group.userData.legs = [];
+    const idle = actions.idle || actions.static;
+    if (idle) {
+      idle.reset().fadeIn(0.12).play();
+      actor.group.userData.currentAnimation = idle === actions.idle ? 'idle' : 'static';
+    }
+  }, undefined, (error) => {
+    console.warn('Tint3d character asset failed to load:', letter, error);
+  });
 }
 
 function makeCharacter(team, variation = 0) {
@@ -1633,6 +1846,7 @@ function createActor(team, variation, x, z, playerControlled = false) {
   actor.shadow = shadow;
   group.position.copy(actor.position);
   scene.add(group);
+  loadCrewCharacter(actor);
   return actor;
 }
 const player = createActor(BLUE, 0, 0, 15.2, true);
@@ -1741,13 +1955,13 @@ function muzzlePosition(actor) {
 function spawnProjectile(origin, target, team, owner) {
   const shot = new THREE.Group();
   const core = new THREE.Mesh(projectileGeometry, projectileMaterials[team]);
-  core.scale.set(0.88, 0.88, 1.65);
+  core.scale.set(0.82, 0.82, 1.85);
   shot.add(core);
   const glow = new THREE.Mesh(
     projectileGeometry,
     new THREE.MeshBasicMaterial({ color: team === BLUE ? 0x77f5ff : 0xffbb91, transparent: true, opacity: 0.24, depthWrite: false })
   );
-  glow.scale.set(1.8, 1.8, 2.1);
+  glow.scale.set(1.45, 1.45, 2.35);
   shot.add(glow);
   shot.position.copy(origin);
   scene.add(shot);
@@ -1772,6 +1986,7 @@ function fireActor(actor, target) {
   actor.fireCooldown = actor.player ? 0.105 : 0.82 + Math.random() * 0.48;
   actor.ink = Math.max(0, actor.ink - (actor.player ? 3.7 : 3.2));
   actor.recoil = actor.player ? 0.16 : 0.075;
+  actor.group.userData.shotTimer = 0.30;
   actor.group.userData.flashTimer = 0.075;
   actor.group.userData.flash.visible = true;
   const destination = target.clone();
@@ -1956,6 +2171,23 @@ function updatePlayer(delta) {
   updateInk();
 }
 function animateActor(actor, moving, delta = 0.016) {
+  const rigData = actor.group.userData;
+  const mixer = rigData.mixer;
+  if (mixer) {
+    rigData.shotTimer = Math.max(0, (rigData.shotTimer || 0) - delta);
+    const requested = rigData.shotTimer > 0 ? 'holding-both-shoot'
+      : moving > 0.05 ? (actor.flow > 0 ? 'sprint' : 'walk') : 'idle';
+    const actions = rigData.animationActions || {};
+    const nextName = actions[requested] ? requested : (actions.idle ? 'idle' : 'static');
+    if (nextName && nextName !== rigData.currentAnimation && actions[nextName]) {
+      const previous = actions[rigData.currentAnimation];
+      const next = actions[nextName];
+      next.reset().fadeIn(0.16).play();
+      if (previous) previous.fadeOut(0.16);
+      rigData.currentAnimation = nextName;
+    }
+    mixer.update(delta);
+  }
   const legs = actor.group.userData.legs || [];
   const arms = actor.group.userData.arms || [];
   const swing = moving > 0.05 ? Math.sin(actor.walkPhase) * 0.68 : 0;
@@ -2122,6 +2354,12 @@ function resetPaint() {
   }
   drawArenaBaseArtwork(paintCtx);
   paintTexture.needsUpdate = true;
+  paintRoughnessCtx.fillStyle = '#f4f4f4';
+  paintRoughnessCtx.fillRect(0, 0, 1024, 1024);
+  paintHeightCtx.fillStyle = '#080808';
+  paintHeightCtx.fillRect(0, 0, 1024, 1024);
+  paintRoughnessTexture.needsUpdate = true;
+  paintHeightTexture.needsUpdate = true;
   seedArea(BLUE, 0, 15.5);
   seedArea(ORANGE, 0, -15.5);
   scoreCache = { blue: -1, orange: -1 };
@@ -2131,7 +2369,7 @@ function resetMatch() {
   for (let i = projectiles.length - 1; i >= 0; i--) removeProjectile(i);
   for (const p of particles) {
     scene.remove(p.mesh);
-    if (p.ring) p.mesh.material.dispose();
+    if (p.material) p.material.dispose();
   }
   particles.length = 0;
   resetPaint();

@@ -1,18 +1,20 @@
-Tint3d environment assets
-==========================
+Tint3d environment and character assets
 
-The following authored 3D models and colour maps are from Kenney:
+Kenney Factory Kit and City Kit (Industrial)
+Creator: Kenney / https://kenney.nl
+Asset packs: https://kenney.nl/assets/factory-kit
+            https://kenney.nl/assets/city-kit-industrial
+Licence: Creative Commons Zero 1.0 Universal (CC0)
 
-- Factory Kit: https://kenney.nl/assets/factory-kit
-- City Kit (Industrial): https://kenney.nl/assets/city-kit-industrial
-- Creator: Kenney / https://kenney.nl
-- Licence: Creative Commons Zero 1.0 Universal (CC0)
-- Licence text: https://creativecommons.org/publicdomain/zero/1.0/
+Kenney Blocky Characters
+Creator: Kenney / https://kenney.nl
+Asset pack: https://kenney.nl/assets/blocky-characters
+Source: https://github.com/shorepine/kenney/tree/main/3d/blocky-characters
+Licence: Creative Commons Zero 1.0 Universal (CC0)
 
-These assets are public-domain dedications under CC0. Commercial use, modification,
-and redistribution are permitted. Attribution is not required; credit is included
-here as a courtesy.
+The character GLBs include idle, walk, sprint, shooting and other animation clips.
+Their matching texture PNGs are stored under Textures/ beside the GLBs so their
+relative image paths resolve locally.
 
-Tint3d loads the GLB files locally from this repository. Each pack's
-Textures/colormap.png file is kept next to its GLB models because the GLB files
-reference that relative path.
+Licence: https://creativecommons.org/publicdomain/zero/1.0/
+These assets may be modified and used commercially. Credit is included as a courtesy.
