@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#090d16" />
+    <meta name="description" content="Tint3d is an original browser-based 3D team paint shooter. Claim the arena one splash at a time." />
+    <title>Tint3d — Own the colour</title>
+  </head>
+  <body>
+    <div id="game-root">
+      <div id="game-stage"></div>
+
+      <header class="topbar">
+        <a class="brand" href="#" aria-label="Tint3d home">
+          <span class="brand-mark">T<span>3</span></span>
+          <span class="brand-name">TINT<span>3D</span></span>
+        </a>
+        <div class="topbar-right">
+          <span class="build-tag"><i></i> PROTOTYPE 0.1</span>
+          <button class="icon-button" id="sound-toggle" aria-label="Toggle sound" title="Toggle sound">♫</button>
+        </div>
+      </header>
+
+      <section class="hud" id="hud" aria-live="polite">
+        <div class="team-score blue-score">
+          <span class="team-label">YOUR CREW</span>
+          <strong id="blue-score">0%</strong>
+        </div>
+        <div class="match-clock">
+          <span>TIME LEFT</span>
+          <strong id="timer">03:00</strong>
+        </div>
+        <div class="team-score orange-score">
+          <span class="team-label">RIVAL CREW</span>
+          <strong id="orange-score">0%</strong>
+        </div>
+      </section>
+
+      <div class="crosshair" id="crosshair"><span></span><i></i></div>
+
+      <section class="start-screen" id="start-screen">
+        <div class="start-panel">
+          <div class="eyebrow"><span></span> THE FIRST SPLASH STARTS HERE</div>
+          <h1>OWN THE<br /><em>COLOUR.</em></h1>
+          <p class="intro">A fresh arena. Two crews. One rule: leave your colour everywhere.</p>
+          <button class="primary-button" id="start-button">ENTER THE YARD <span>↗</span></button>
+          <div class="start-foot">
+            <span><b>01</b> TRAINING GROUNDS</span>
+            <span>BUILD 0.1.0</span>
+          </div>
+        </div>
+        <div class="start-side">
+          <div class="orbit orbit-one"></div>
+          <div class="orbit orbit-two"></div>
+          <div class="paint-orb orb-blue"></div>
+          <div class="paint-orb orb-orange"></div>
+          <div class="side-copy"><span>FIELD NOTE / 001</span><strong>MAKE<br />YOUR<br />MARK.</strong></div>
+        </div>
+      </section>
+
+      <section class="pause-screen hidden" id="pause-screen">
+        <div class="pause-card">
+          <span class="eyebrow">FIELD PAUSED</span>
+          <h2>TAKE A<br /><em>BREATHER.</em></h2>
+          <p>Press ESC or tap below when you're ready.</p>
+          <button class="primary-button" id="resume-button">BACK TO THE YARD <span>↗</span></button>
+          <button class="text-button" id="restart-button">RESTART MATCH</button>
+        </div>
+      </section>
+
+      <section class="result-screen hidden" id="result-screen">
+        <div class="result-card">
+          <span class="eyebrow">MATCH COMPLETE</span>
+          <h2 id="result-title">FIELD<br /><em>CLAIMED.</em></h2>
+          <p id="result-copy">The final colour count is in.</p>
+          <div class="result-scores">
+            <div><span>YOUR CREW</span><strong id="final-blue">0%</strong></div>
+            <div><span>RIVAL CREW</span><strong id="final-orange">0%</strong></div>
+          </div>
+          <button class="primary-button" id="play-again-button">PLAY AGAIN <span>↗</span></button>
+        </div>
+      </section>
+
+      <footer class="bottom-hud" id="bottom-hud">
+        <div class="weapon-info">
+          <div class="weapon-icon">✳</div>
+          <div><span>WEAPON / 01</span><strong>PULSE SPRAYER</strong></div>
+        </div>
+        <div class="control-hint" id="control-hint">WASD MOVE <b>·</b> MOUSE AIM <b>·</b> CLICK SPRAY <b>·</b> SHIFT FLOW SLIDE</div>
+        <div class="paint-meter"><span>INK</span><div><i id="ink-fill"></i></div><strong id="ink-label">100</strong></div>
+      </footer>
+
+      <div class="mobile-controls" id="mobile-controls">
+        <div class="joystick" id="joystick"><div class="joystick-knob" id="joystick-knob"></div></div>
+        <div class="mobile-actions">
+          <button id="jump-button" aria-label="Jump">↑</button>
+          <button id="fire-button" aria-label="Spray paint">✳</button>
+        </div>
+      </div>
+
+      <div class="toast" id="toast">FLOW SLIDE READY</div>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
