@@ -18,3 +18,11 @@ relative image paths resolve locally.
 
 Licence: https://creativecommons.org/publicdomain/zero/1.0/
 These assets may be modified and used commercially. Credit is included as a courtesy.
+
+
+Kenney Blaster Kit
+Creator: Kenney / https://kenney.nl
+Asset pack: https://kenney.nl/assets/blaster-kit
+Source: https://github.com/shorepine/kenney/tree/main/3d/blaster
+Included asset: blaster-e.glb and Textures/colormap.png
+Licence: Creative Commons Zero 1.0 Universal (CC0)
