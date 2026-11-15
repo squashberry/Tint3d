@@ -42,9 +42,72 @@ if (isTouch) {
 }
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x83c6ca);
-scene.fog = new THREE.Fog(0x83c6ca, 40, 94);
-const camera = new THREE.PerspectiveCamera(66, innerWidth / innerHeight, 0.1, 120);
+const skyHorizon = 0x83b4bc;
+scene.background = new THREE.Color(skyHorizon);
+scene.fog = new THREE.Fog(skyHorizon, 43, 112);
+
+// A lightweight painted sky dome gives Breakwater a layered coastal atmosphere
+// without an HDR download, extra render pass, or per-frame shader workload.
+const skyCanvas = document.createElement('canvas');
+skyCanvas.width = 1024;
+skyCanvas.height = 512;
+const skyCtx = skyCanvas.getContext('2d');
+const skyGradient = skyCtx.createLinearGradient(0, 0, 0, 512);
+skyGradient.addColorStop(0, '#24536f');
+skyGradient.addColorStop(0.26, '#4a879f');
+skyGradient.addColorStop(0.56, '#8bbbc1');
+skyGradient.addColorStop(0.72, '#c8c6ac');
+skyGradient.addColorStop(1, '#738f91');
+skyCtx.fillStyle = skyGradient;
+skyCtx.fillRect(0, 0, 1024, 512);
+
+// Low coastal cloud bands: soft layered strokes rather than hard-edged sprites.
+for (let i = 0; i < 18; i++) {
+  const x = 35 + ((i * 173) % 960);
+  const y = 118 + ((i * 47) % 122);
+  const width = 70 + ((i * 29) % 115);
+  const height = 10 + ((i * 11) % 17);
+  skyCtx.save();
+  skyCtx.translate(x, y);
+  skyCtx.rotate(((i % 5) - 2) * 0.035);
+  const cloud = skyCtx.createRadialGradient(0, 0, 2, 0, 0, width);
+  cloud.addColorStop(0, 'rgba(244,244,224,0.28)');
+  cloud.addColorStop(0.42, 'rgba(229,239,226,0.15)');
+  cloud.addColorStop(1, 'rgba(229,239,226,0)');
+  skyCtx.fillStyle = cloud;
+  skyCtx.scale(1, height / Math.max(1, width));
+  skyCtx.beginPath();
+  skyCtx.arc(0, 0, width, 0, Math.PI * 2);
+  skyCtx.fill();
+  skyCtx.restore();
+}
+
+// Warm sunlight diffuses across the upper-left sky and softens into the haze.
+const sunHaze = skyCtx.createRadialGradient(205, 142, 2, 205, 142, 190);
+sunHaze.addColorStop(0, 'rgba(255,224,174,0.42)');
+sunHaze.addColorStop(0.22, 'rgba(255,218,174,0.16)');
+sunHaze.addColorStop(1, 'rgba(255,218,174,0)');
+skyCtx.fillStyle = sunHaze;
+skyCtx.fillRect(0, 0, 1024, 512);
+const skyTexture = new THREE.CanvasTexture(skyCanvas);
+skyTexture.colorSpace = THREE.SRGBColorSpace;
+skyTexture.anisotropy = 4;
+const skyDome = new THREE.Mesh(
+  new THREE.SphereGeometry(150, 48, 24),
+  new THREE.MeshBasicMaterial({
+    map: skyTexture,
+    side: THREE.BackSide,
+    depthWrite: false,
+    depthTest: false,
+    fog: false,
+    toneMapped: false
+  })
+);
+skyDome.layers.set(0);
+skyDome.renderOrder = -1000;
+scene.add(skyDome);
+
+const camera = new THREE.PerspectiveCamera(66, innerWidth / innerHeight, 0.1, 180);
 const renderer = new THREE.WebGLRenderer({
   antialias: true,
   alpha: false,
@@ -57,19 +120,19 @@ renderer.setSize(innerWidth, innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.18;
+renderer.toneMapping = THREE.AgXToneMapping;
+renderer.toneMappingExposure = 1.12;
 root.appendChild(renderer.domElement);
 
-scene.add(new THREE.HemisphereLight(0xe6fcff, 0x58616a, 1.72));
-const sun = new THREE.DirectionalLight(0xfff2d9, 2.85);
+scene.add(new THREE.HemisphereLight(0xd9f4ff, 0x4c5961, 1.55));
+const sun = new THREE.DirectionalLight(0xffedcf, 2.65);
 sun.position.set(-13, 25, 11);
 sun.castShadow = true;
-sun.shadow.mapSize.set(isTouch ? 768 : 1024, isTouch ? 768 : 1024);
-sun.shadow.camera.left = -24;
-sun.shadow.camera.right = 24;
-sun.shadow.camera.top = 24;
-sun.shadow.camera.bottom = -24;
+sun.shadow.mapSize.set(isTouch ? 768 : 1536, isTouch ? 768 : 1536);
+sun.shadow.camera.left = -26;
+sun.shadow.camera.right = 26;
+sun.shadow.camera.top = 26;
+sun.shadow.camera.bottom = -26;
 sun.shadow.camera.near = 0.5;
 sun.shadow.camera.far = 70;
 sun.shadow.bias = -0.00012;
@@ -1295,8 +1358,8 @@ function addKenneyModel(pack, file, x, floorY, z, scale, rotationY = 0, solid = 
     model.traverse((node) => {
       if (node.isMesh) {
         node.layers.enable(1);
-        node.castShadow = false;
-        node.receiveShadow = false;
+        node.castShadow = solid || pack === 'factory';
+        node.receiveShadow = true;
       }
     });
     scene.add(model);
@@ -2015,7 +2078,9 @@ function makeCharacter(team, variation = 0) {
   const part = (geometry, material, parent, x, y, z, sx = 1, sy = 1, sz = 1) => {
     const item = mesh(geometry, material, parent, x, y, z);
     item.scale.set(sx, sy, sz);
-    item.castShadow = false;
+    // Only the larger, opaque body forms cast shadows; small facial and trim
+    // details stay lightweight while the full crew gains grounded silhouettes.
+    item.castShadow = material === teamBase || material === teamDark || material === cloth || material === skin;
     item.receiveShadow = false;
     return item;
   };
