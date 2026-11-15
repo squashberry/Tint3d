@@ -2116,7 +2116,7 @@ function makeCharacter(team, variation = 0) {
   const rigRoot = makeBone('root', group, [0, 0, 0]);
   const torsoPivot = makeBone('hips', rigRoot, [0, 0.80, 0]);
   const spine = makeBone('spine', torsoPivot, [0, 0.12, 0]);
-  const chest = makeBone('chest', spine, [0, 0.29, 0]);
+  const chest = makeBone('chest', spine, [0, 0.40, 0]);
   const neck = makeBone('neck', chest, [0, 0.38, 0]);
   const head = makeBone('head', neck, [0, 0.14, 0]);
   const backMount = makeBone('back_weapon_mount', chest, [0, 0.03, 0.30]);
@@ -2303,6 +2303,9 @@ function makeCharacter(team, variation = 0) {
   // Merge the skinned surfaces into a small set of material batches.
   const skeleton = new THREE.Skeleton(bones);
   skeleton.calculateInverses();
+  // Prefer a bone texture on mobile GPUs so the full finger/limb rig does not
+  // consume the limited vertex-uniform budget.
+  if (renderer.capabilities.maxVertexTextures > 0) skeleton.computeBoneTexture();
   const skinnedMeshes = [];
   for (const [material, geometries] of partBuckets) {
     const merged = mergeGeometries(geometries, false);
