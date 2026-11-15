@@ -1933,18 +1933,18 @@ function spawnSplash(position, team, groundOverride = null) {
   scene.add(ring);
   particles.push({ mesh: ring, life: 0.40, maxLife: 0.40, ring: true, material: ringMaterial });
 
-  for (let i = 0; i < 7; i++) {
+  for (let i = 0; i < 10; i++) {
     const dot = mesh(shared.sphere, projectileMaterials[team], scene, position.x, ground + 0.10, position.z);
     dot.layers.disable(1);
     const angle = Math.random() * Math.PI * 2;
-    const scale = 0.055 + Math.random() * 0.075;
+    const scale = 0.06 + Math.random() * 0.085;
     dot.scale.set(scale * (0.95 + Math.random() * 0.6), scale * 1.18, scale * (0.95 + Math.random() * 0.6));
     dot.rotation.z = angle;
     particles.push({
       mesh: dot, life: 0.34 + Math.random() * 0.25, maxLife: 0.60, groundY: ground,
       velocity: new THREE.Vector3(
-        Math.cos(angle) * (1.55 + Math.random() * 2.6),
-        1.45 + Math.random() * 2.3,
+        Math.cos(angle) * (1.8 + Math.random() * 3.0),
+        1.6 + Math.random() * 2.6,
         Math.sin(angle) * (1.55 + Math.random() * 2.6)
       )
     });
@@ -1980,7 +1980,7 @@ function spawnMotionSpray(actor, count = 2, strength = 0.7) {
 }
 function spawnHitBurst(position, team, strength = 1) {
   if (particles.length > 108) return;
-  const count = Math.min(13, Math.round(7 + strength * 4));
+  const count = Math.min(16, Math.round(9 + strength * 4.5));
   for (let i = 0; i < count; i++) {
     const drop = mesh(shared.smallSphere, projectileMaterials[team], scene, position.x, position.y, position.z);
     drop.layers.disable(1);
@@ -1999,7 +1999,7 @@ function spawnMuzzleBurst(origin, direction, team) {
   if (particles.length > 112) return;
   const forward = direction.clone().normalize();
   const side = new THREE.Vector3(-forward.z, 0, forward.x);
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 7; i++) {
     const drop = mesh(shared.smallSphere, projectileMaterials[team], scene, origin.x, origin.y, origin.z);
     drop.layers.disable(1);
     const size = 0.045 + Math.random() * 0.055;
@@ -2732,6 +2732,7 @@ function updatePlayer(delta) {
   if (move.lengthSq() > 1) move.normalize();
 
   const sprintRequested = sprintLocked || keys.has('ShiftLeft') || keys.has('ShiftRight');
+  const moving = move.lengthSq() > 0.025;
   player.slideCooldown = Math.max(0, player.slideCooldown - delta);
 
   if (flowQueued) {
@@ -2759,11 +2760,11 @@ function updatePlayer(delta) {
         : move.clone().normalize();
       if (direction.lengthSq() < 0.01) direction.set(Math.sin(yaw), 0, -Math.cos(yaw));
       player.sliding = true;
-      player.slideTimer = 1.02;
-      player.slideCooldown = 1.08;
+      player.slideTimer = 1.24;
+      player.slideCooldown = 1.12;
       player.slideDirection.copy(direction);
-      const slideLaunch = sprintRequested ? 15.8 : 14.4;
-      player.slideSpeed = clamp(Math.max(slideLaunch, currentSpeed * 1.14), 13.8, 16.4);
+      const slideLaunch = sprintRequested ? 17.0 : 15.3;
+      player.slideSpeed = clamp(Math.max(slideLaunch, currentSpeed * 1.18), 14.2, 18.2);
       player.velocity.x = direction.x * player.slideSpeed;
       player.velocity.z = direction.z * player.slideSpeed;
       player.sprinting = false;
@@ -2780,18 +2781,25 @@ function updatePlayer(delta) {
   }
 
   if (jumpQueued) {
-    player.jumpBuffer = 0.14;
+    player.jumpBuffer = 0.17;
     jumpQueued = false;
   } else {
     player.jumpBuffer = Math.max(0, player.jumpBuffer - delta);
   }
-  if (player.grounded) player.coyoteTimer = 0.12;
+  if (player.grounded) player.coyoteTimer = 0.15;
   else player.coyoteTimer = Math.max(0, player.coyoteTimer - delta);
 
   if (player.jumpBuffer > 0 && (player.grounded || player.coyoteTimer > 0)) {
+    const slideJump = player.sliding;
     player.sliding = false;
     player.grounded = false;
-    player.verticalVelocity = 8.25 + (sprintRequested ? 0.35 : 0);
+    player.verticalVelocity = 8.45 + (sprintRequested && moving ? 0.82 : 0) + (slideJump ? 0.58 : 0);
+    if ((sprintRequested || slideJump) && player.velocity.lengthSq() > 0.1) {
+      const carry = slideJump ? 1.12 : 1.055;
+      player.velocity.multiplyScalar(carry);
+      const carriedSpeed = Math.hypot(player.velocity.x, player.velocity.z);
+      if (carriedSpeed > 17.2) player.velocity.setLength(17.2);
+    }
     player.jumpBuffer = 0;
     player.coyoteTimer = 0;
     player.jumpHoldTimer = 0;
@@ -2799,28 +2807,48 @@ function updatePlayer(delta) {
     playPop(0.55);
   }
 
-  const moving = move.lengthSq() > 0.025;
   const flowBoost = player.flow > 0;
   player.sprinting = !player.sliding && sprintRequested && moving && player.grounded && !fireHeld && !flowBoost;
-  const targetSpeed = flowBoost ? 16.2 : (player.sprinting ? 12.6 : 8.0);
+  const targetSpeed = flowBoost ? 16.2 : (player.sprinting ? 13.8 : 8.35);
 
   if (player.sliding) {
     player.slideTimer -= delta;
     if (moving) {
-      const steering = 1 - Math.exp(-1.8 * delta);
+      const steering = 1 - Math.exp(-2.15 * delta);
       player.slideDirection.lerp(move, steering).normalize();
     }
-    player.slideSpeed = Math.max(4.8, player.slideSpeed * Math.exp(-0.76 * delta));
+    // Preserve momentum on flat ground and let ramps naturally accelerate or
+    // slow the slide, rather than applying the same drag on every surface.
+    const slideSurface = actorSurfaceHeight(player, player.position.x, player.position.z);
+    const aheadSurface = actorSurfaceHeight(
+      player,
+      player.position.x + player.slideDirection.x * 0.45,
+      player.position.z + player.slideDirection.z * 0.45
+    );
+    const downhillAcceleration = clamp((slideSurface - aheadSurface) / 0.45 * 9.8, -4.0, 4.0);
+    player.slideSpeed = clamp(
+      (player.slideSpeed + downhillAcceleration * delta) * Math.exp(-0.58 * delta),
+      5.2, 18.8
+    );
     player.velocity.x = player.slideDirection.x * player.slideSpeed;
     player.velocity.z = player.slideDirection.z * player.slideSpeed;
-    if (player.slideTimer <= 0 || !player.grounded) {
+    if (player.slideTimer <= 0 || !player.grounded || (sprintRequested && player.slideTimer < 0.95)) {
       player.sliding = false;
       player.sprinting = sprintRequested && moving && !fireHeld;
     }
   } else {
     const desiredVelocity = new THREE.Vector3(move.x * targetSpeed, 0, move.z * targetSpeed);
-    const response = player.grounded ? (moving ? 19.5 : 13.5) : 5.8;
-    player.velocity.lerp(desiredVelocity, 1 - Math.exp(-response * delta));
+    if (player.grounded) {
+      const reversing = moving && (player.velocity.x * move.x + player.velocity.z * move.z) < -0.4;
+      const response = moving ? (reversing ? 25.0 : 17.5) : 14.5;
+      player.velocity.lerp(desiredVelocity, 1 - Math.exp(-response * delta));
+    } else if (moving) {
+      // Air steering is deliberate but never erases the take-off momentum.
+      player.velocity.lerp(desiredVelocity, 1 - Math.exp(-3.1 * delta));
+    } else {
+      player.velocity.x *= Math.exp(-0.24 * delta);
+      player.velocity.z *= Math.exp(-0.24 * delta);
+    }
   }
 
   moveOnGround(player, player.velocity.x * delta, player.velocity.z * delta, player.sliding ? 0.40 : 0.48);
@@ -2863,7 +2891,8 @@ function updatePlayer(delta) {
   player.ink = Math.min(100, player.ink + delta * (onFriendlyInk ? 14 : 8));
   player.invulnerable = Math.max(0, player.invulnerable - delta);
   player.walkPhase += delta * (player.sliding ? 15 : (player.sprinting ? 14 : (moving ? 10 : 2)));
-  animateActor(player, player.sliding ? 1.25 : (player.sprinting ? 1 : move.length()), delta);
+  const gaitSpeed = clamp(Math.hypot(player.velocity.x, player.velocity.z) / 13.8, 0, 1.18);
+  animateActor(player, player.sliding ? 1.25 : gaitSpeed, delta);
   player.effectTimer -= delta;
   if (moving && player.grounded && player.effectTimer <= 0) {
     spawnMotionSpray(player, player.sliding ? 8 : (player.sprinting ? 4 : 1), player.sliding ? 2.0 : 0.9);
@@ -3063,9 +3092,13 @@ function updateCamera(delta) {
   const distance = sliding ? 5.35 : 6.15;
   const height = sliding ? 1.72 : 2.18;
   const shoulder = 0.48;
+  const lateralVelocity = player.velocity.x * right.x + player.velocity.z * right.z;
+  const forwardVelocity = player.velocity.x * forward.x + player.velocity.z * forward.z;
+  const cameraLead = clamp(forwardVelocity * 0.012, -0.28, 0.42);
+  const cameraShoulder = shoulder + clamp(lateralVelocity * 0.014, -0.22, 0.22);
   const desired = target.clone()
-    .addScaledVector(forward, -distance)
-    .addScaledVector(right, shoulder)
+    .addScaledVector(forward, -distance + cameraLead)
+    .addScaledVector(right, cameraShoulder)
     .add(new THREE.Vector3(0, height, 0));
   if (cameraShake > 0.001) {
     const shake = cameraShake;
@@ -3077,11 +3110,11 @@ function updateCamera(delta) {
   }
   camera.position.lerp(desired, 1 - Math.exp(-(sliding ? 17.5 : 19.5) * delta));
   const lookTarget = target.clone()
-    .addScaledVector(forward, 3.35)
-    .addScaledVector(right, shoulder)
+    .addScaledVector(forward, 3.35 + clamp(forwardVelocity * 0.045, -0.35, 0.65))
+    .addScaledVector(right, cameraShoulder)
     .add(new THREE.Vector3(0, 0.10 - pitch * 4.8, 0));
   camera.lookAt(lookTarget);
-  const wantedFov = sliding ? 76 : (player.sprinting || player.flow > 0 ? 70 : 65);
+  const wantedFov = sliding ? 79 : (player.sprinting || player.flow > 0 ? 72 : 65);
   camera.fov = THREE.MathUtils.damp(camera.fov, wantedFov, sliding ? 7.2 : 8.5, delta);
   camera.updateProjectionMatrix();
 }
