@@ -3113,6 +3113,13 @@ function updateBots(delta) {
     actor.ink = Math.min(100, actor.ink + delta * 9);
   }
 }
+function fireFromCurrentReticle() {
+  if (!gameStarted || paused || ended) return;
+  // A fresh camera solve prevents the first shot after a swipe from using the
+  // previous frame's yaw/pitch. The held-fire loop then continues every frame.
+  updateCamera(1 / 60);
+  fireActor(player, getAimPoint());
+}
 function updateCamera(delta) {
   const forward = new THREE.Vector3(Math.sin(yaw), 0, -Math.cos(yaw)).normalize();
   const right = new THREE.Vector3(Math.cos(yaw), 0, Math.sin(yaw)).normalize();
@@ -3466,7 +3473,7 @@ document.addEventListener('keyup', (event) => {
 renderer.domElement.addEventListener('pointerdown', (event) => {
   if (event.button === 0 && gameStarted && !paused && !isTouch) {
     fireHeld = true;
-    fireActor(player, getAimPoint());
+    fireFromCurrentReticle();
   }
   if (isTouch && event.clientX > innerWidth * 0.38 && !event.target.closest('button')) {
     renderer.domElement.setPointerCapture?.(event.pointerId);
@@ -3537,7 +3544,7 @@ joystickEl.addEventListener('pointercancel', releasePointer);
 fireButton.addEventListener('pointerdown', (event) => {
   event.preventDefault();
   fireHeld = true;
-  fireActor(player, getAimPoint());
+  fireFromCurrentReticle();
 });
 fireButton.addEventListener('pointerup', () => { fireHeld = false; });
 fireButton.addEventListener('pointercancel', () => { fireHeld = false; });
