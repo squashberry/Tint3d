@@ -24,7 +24,7 @@ const ui = {
   ink: $('ink-fill'), inkLabel: $('ink-label'),
   health: $('health-fill'), healthLabel: $('health-label'),
   flow: $('flow-fill'), flowLabel: $('flow-label'),
-  toast: $('toast'), hit: $('hit-flash'), mini: $('mini-map'),
+  toast: $('toast'), hit: $('hit-flash'), crosshair: $('crosshair'), mini: $('mini-map'),
   blueRoster: $('blue-roster'), orangeRoster: $('orange-roster'),
   eliminations: $('elimination-count'), hint: $('control-hint')
 };
@@ -1819,6 +1819,11 @@ const projectileMaterials = {
   1: new THREE.MeshPhysicalMaterial({ color: TEAM[1].ink, roughness: 0.10, clearcoat: 1.0, clearcoatRoughness: 0.045, emissive: 0x073c50, emissiveIntensity: 0.18 }),
   2: new THREE.MeshPhysicalMaterial({ color: TEAM[2].ink, roughness: 0.10, clearcoat: 1.0, clearcoatRoughness: 0.045, emissive: 0x542014, emissiveIntensity: 0.15 })
 };
+const projectileStreakGeometry = new THREE.CylinderGeometry(0.012, 0.070, 0.72, 8, 1, true);
+const projectileStreakMaterials = {
+  1: new THREE.MeshBasicMaterial({ color: 0x8cffff, transparent: true, opacity: 0.52, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }),
+  2: new THREE.MeshBasicMaterial({ color: 0xffc1a2, transparent: true, opacity: 0.52, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide })
+};
 const splashMaterials = {
   1: new THREE.MeshPhysicalMaterial({ color: TEAM[1].ink, roughness: 0.10, clearcoat: 1.0, clearcoatRoughness: 0.04, transparent: true, opacity: 0.88, side: THREE.DoubleSide, depthWrite: false }),
   2: new THREE.MeshPhysicalMaterial({ color: TEAM[2].ink, roughness: 0.10, clearcoat: 1.0, clearcoatRoughness: 0.04, transparent: true, opacity: 0.88, side: THREE.DoubleSide, depthWrite: false })
@@ -2388,6 +2393,9 @@ let timeLeft = MATCH_SECONDS;
 let toastTimer = 0;
 let fireHeld = false;
 let cameraShake = 0;
+let cameraRecoil = 0;
+let crosshairHitTimer = 0;
+let crosshairFireTimer = 0;
 let jumpQueued = false;
 let jumpHeld = false;
 let sprintLocked = false;
@@ -2434,8 +2442,10 @@ function playPop(power = 1) {
   } catch { /* Optional sound; gameplay does not depend on audio. */ }
 }
 function getAimPoint() {
-  // Aim in full 3D: the reticle ray can hit elevated props or characters,
-  // and if it points into open sky the shot continues along that upward ray.
+  // Raycast from the current rendered camera transform, including same-frame
+  // camera movement and recoil, so the reticle and shot destination agree.
+  camera.updateMatrixWorld(true);
+  scene.updateMatrixWorld(true);
   raycaster.layers.set(1);
   raycaster.setFromCamera(centerScreen, camera);
   const hits = raycaster.intersectObjects(scene.children, true);
@@ -2443,18 +2453,14 @@ function getAimPoint() {
   return raycaster.ray.origin.clone().addScaledVector(raycaster.ray.direction, 32);
 }
 function muzzlePosition(actor) {
-  const shotPitch = actor.player ? clamp((0.20 - pitch) * 0.65, -0.12, 0.82) : 0.035;
-  const yawAngle = actor.group.rotation.y;
-  const forward = new THREE.Vector3(
-    Math.sin(yawAngle) * Math.cos(shotPitch),
-    Math.sin(shotPitch),
-    -Math.cos(yawAngle) * Math.cos(shotPitch)
-  );
-  const right = new THREE.Vector3(Math.cos(yawAngle), 0, Math.sin(yawAngle));
-  return actor.position.clone()
-    .addScaledVector(forward, 0.72)
-    .addScaledVector(right, 0.30)
-    .add(new THREE.Vector3(0, 1.30, 0));
+  const weapon = actor.group.userData.weapon;
+  if (weapon) {
+    // Read the muzzle from the animated weapon itself, not a guessed body offset.
+    actor.group.updateMatrixWorld(true);
+    weapon.updateWorldMatrix(true, false);
+    return weapon.localToWorld(new THREE.Vector3(0, 0, -0.94));
+  }
+  return actor.position.clone().add(new THREE.Vector3(0, 1.30, 0));
 }
 function spawnProjectile(origin, target, team, owner) {
   const shot = new THREE.Group();
@@ -2467,6 +2473,10 @@ function spawnProjectile(origin, target, team, owner) {
   );
   glow.scale.set(1.45, 1.45, 2.35);
   shot.add(glow);
+  const streak = new THREE.Mesh(projectileStreakGeometry, projectileStreakMaterials[team]);
+  streak.rotation.x = Math.PI / 2;
+  streak.position.z = -0.36;
+  shot.add(streak);
   shot.position.copy(origin);
   scene.add(shot);
   const delta = target.clone().sub(origin);
@@ -2486,12 +2496,12 @@ function fireActor(actor, target) {
   setWeaponHolstered(actor, false);
   if (actor.player) {
     actor.sprinting = false;
-    actor.group.rotation.y = yaw;
-    actor.group.userData.weapon.rotation.x = clamp((0.20 - pitch) * 0.65, -0.12, 0.82);
+    // The character's local front is -Z; negative yaw matches camera yaw.
+    actor.group.rotation.y = -yaw;
   }
   actor.fireCooldown = actor.player ? 0.105 : 0.82 + Math.random() * 0.48;
   actor.ink = Math.max(0, actor.ink - (actor.player ? 3.7 : 3.2));
-  actor.recoil = actor.player ? 0.16 : 0.075;
+  actor.recoil = actor.player ? 0.22 : 0.095;
   actor.group.userData.shotTimer = 0.30;
   actor.group.userData.flashTimer = 0.075;
   actor.group.userData.flash.visible = true;
@@ -2506,7 +2516,10 @@ function fireActor(actor, target) {
   spawnMuzzleBurst(muzzle, shotDirection, actor.team);
   spawnProjectile(muzzle, destination, actor.team, actor);
   if (actor.player) {
-    cameraShake = Math.max(cameraShake, 0.035);
+    cameraShake = Math.max(cameraShake, 0.048);
+    cameraRecoil = Math.min(0.052, cameraRecoil + 0.009);
+    ui.crosshair.classList.add('is-firing');
+    crosshairFireTimer = 0.075;
     updateInk();
     playPop(1);
   }
@@ -2603,7 +2616,7 @@ function updateProjectiles(delta) {
     const travelLengthSq = Math.max(0.000001, travel.lengthSq());
     let hitActor = false;
     for (const actor of actors) {
-      if (actor.team === p.team || actor === p.owner || !actor.group.visible || actor.invulnerable > 0) continue;
+      if (actor.team === p.team || actor === p.owner || !actor.group.visible || actor.invulnerable > 0 || actor.ragdollState) continue;
       const center = new THREE.Vector3(actor.position.x, actor.position.y + 1.02, actor.position.z);
       const along = clamp(center.clone().sub(previous).dot(travel) / travelLengthSq, 0, 1);
       const closest = previous.clone().addScaledVector(travel, along);
@@ -2613,9 +2626,18 @@ function updateProjectiles(delta) {
       const combinedRadius = 0.54 + p.radius * 0.42;
       if (dx * dx + dz * dz < combinedRadius * combinedRadius && Math.abs(dy) < 0.94) {
         pos.copy(closest);
-        damageActor(actor, actor.player ? 22 : 36, p.owner);
+        const damage = actor.player ? 22 : 36;
+        const elimination = actor.health <= damage;
+        damageActor(actor, damage, p.owner);
         spawnHitBurst(new THREE.Vector3(pos.x, actor.position.y + 1.05, pos.z), p.team, actor.player ? 1.25 : 1);
         if (actor.player) cameraShake = Math.max(cameraShake, 0.20);
+        if (p.owner === player) {
+          ui.crosshair.classList.remove('is-hit', 'is-elimination');
+          ui.crosshair.classList.add(elimination ? 'is-elimination' : 'is-hit');
+          crosshairHitTimer = elimination ? 0.30 : 0.18;
+          cameraShake = Math.max(cameraShake, elimination ? 0.13 : 0.065);
+          playPop(elimination ? 1.6 : 1.25);
+        }
         paintAt(new THREE.Vector3(pos.x, 0, pos.z), p.team, 1.3);
         hitActor = true;
         break;
@@ -2722,11 +2744,10 @@ function updatePlayer(delta) {
   }
 
   const input = movementInput();
-  const cameraForward = camera.getWorldDirection(new THREE.Vector3());
-  cameraForward.y = 0;
-  if (cameraForward.lengthSq() < 0.01) cameraForward.set(Math.sin(yaw), 0, -Math.cos(yaw));
-  cameraForward.normalize();
-  const cameraRight = new THREE.Vector3().crossVectors(cameraForward, new THREE.Vector3(0, 1, 0)).normalize();
+  // Movement reads the same yaw basis as the camera orbit, avoiding a frame
+  // of input drift while the follow camera catches up after a swipe.
+  const cameraForward = new THREE.Vector3(Math.sin(yaw), 0, -Math.cos(yaw));
+  const cameraRight = new THREE.Vector3(Math.cos(yaw), 0, Math.sin(yaw));
   const move = new THREE.Vector3()
     .addScaledVector(cameraRight, input.x)
     .addScaledVector(cameraForward, input.y);
@@ -3120,7 +3141,8 @@ function updateCamera(delta) {
   const lookTarget = target.clone()
     .addScaledVector(forward, 3.35 + clamp(forwardVelocity * 0.045, -0.35, 0.65))
     .addScaledVector(right, cameraShoulder)
-    .add(new THREE.Vector3(0, 0.10 - pitch * 4.8, 0));
+    .add(new THREE.Vector3(0, 0.10 - pitch * 4.8 + cameraRecoil * 2.0, 0));
+  cameraRecoil = Math.max(0, cameraRecoil - delta * 0.22);
   camera.lookAt(lookTarget);
   const wantedFov = sliding ? 79 : (player.sprinting || player.flow > 0 ? 72 : 65);
   camera.fov = THREE.MathUtils.damp(camera.fov, wantedFov, sliding ? 7.2 : 8.5, delta);
@@ -3558,11 +3580,15 @@ function animate() {
     ui.timer.textContent = formatTime(timeLeft);
     updatePlayer(delta);
     updateBots(delta);
+    // Refresh camera after movement and before reading the aim ray.
+    updateCamera(delta);
     if (fireHeld) fireActor(player, getAimPoint());
     updateProjectiles(delta);
     if (timeLeft <= 0) finishMatch();
-  } else if (!paused) {
-    updateProjectiles(delta);
+  } else {
+    if (introActive) updateIntroCamera(delta);
+    else updateCamera(delta);
+    if (!paused) updateProjectiles(delta);
   }
   updateParticles(delta);
   updateRagdolls(delta);
@@ -3575,8 +3601,14 @@ function animate() {
     hitTimer -= delta;
     if (hitTimer <= 0) ui.hit.classList.remove('visible');
   }
-  if (introActive) updateIntroCamera(delta);
-  else updateCamera(delta);
+  if (crosshairHitTimer > 0) {
+    crosshairHitTimer -= delta;
+    if (crosshairHitTimer <= 0) ui.crosshair.classList.remove('is-hit', 'is-elimination');
+  }
+  if (crosshairFireTimer > 0) {
+    crosshairFireTimer -= delta;
+    if (crosshairFireTimer <= 0) ui.crosshair.classList.remove('is-firing');
+  }
   renderer.render(scene, camera);
 }
 function onResize() {
