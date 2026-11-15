@@ -1816,8 +1816,8 @@ function updateActorShadow(actor) {
 }
 const projectileGeometry = new THREE.SphereGeometry(0.14, 14, 10);
 const projectileMaterials = {
-  1: new THREE.MeshPhysicalMaterial({ color: TEAM[1].ink, roughness: 0.13, clearcoat: 1.0, clearcoatRoughness: 0.055, emissive: 0x073c50, emissiveIntensity: 0.12 }),
-  2: new THREE.MeshPhysicalMaterial({ color: TEAM[2].ink, roughness: 0.13, clearcoat: 1.0, clearcoatRoughness: 0.055, emissive: 0x542014, emissiveIntensity: 0.10 })
+  1: new THREE.MeshPhysicalMaterial({ color: TEAM[1].ink, roughness: 0.10, clearcoat: 1.0, clearcoatRoughness: 0.045, emissive: 0x073c50, emissiveIntensity: 0.18 }),
+  2: new THREE.MeshPhysicalMaterial({ color: TEAM[2].ink, roughness: 0.10, clearcoat: 1.0, clearcoatRoughness: 0.045, emissive: 0x542014, emissiveIntensity: 0.15 })
 };
 const splashMaterials = {
   1: new THREE.MeshPhysicalMaterial({ color: TEAM[1].ink, roughness: 0.10, clearcoat: 1.0, clearcoatRoughness: 0.04, transparent: true, opacity: 0.88, side: THREE.DoubleSide, depthWrite: false }),
@@ -2695,7 +2695,7 @@ function hasFriendlyInkUnderfoot(x, z, team = BLUE) {
 }
 function paintPlayerTrail(position) {
   const current = new THREE.Vector3(position.x, 0, position.z);
-  const radius = player.sliding ? 1.28 : (player.sprinting ? 1.14 : 1.08);
+  const radius = player.sliding ? 1.34 : (player.flow > 0 ? 1.32 : (player.sprinting ? 1.18 : 1.08));
   if (!lastPlayerPaintPosition) {
     lastPlayerPaintPosition = current.clone();
     paintAt(current, BLUE, radius, true);
@@ -2703,7 +2703,7 @@ function paintPlayerTrail(position) {
   }
   const distance = lastPlayerPaintPosition.distanceTo(current);
   if (distance > 0.02) {
-    const spacing = player.sliding ? 0.22 : 0.34;
+    const spacing = player.sliding || player.flow > 0 ? 0.22 : 0.34;
     const stamps = Math.max(1, Math.ceil(distance / spacing));
     for (let i = 1; i <= stamps; i++) {
       const t = i / stamps;
@@ -2811,7 +2811,7 @@ function updatePlayer(delta) {
   }
 
   const flowBoost = player.flow > 0;
-  player.sprinting = !player.sliding && sprintRequested && moving && player.grounded && !fireHeld && !flowBoost;
+  player.sprinting = !player.sliding && sprintRequested && moving && !fireHeld && !flowBoost;
   const targetSpeed = flowBoost ? 16.2 : (sprintRequested ? 13.8 : 8.35);
 
   if (player.sliding) {
@@ -2898,8 +2898,13 @@ function updatePlayer(delta) {
   animateActor(player, player.sliding ? 1.25 : gaitSpeed, delta);
   player.effectTimer -= delta;
   if (moving && player.grounded && player.effectTimer <= 0) {
-    spawnMotionSpray(player, player.sliding ? 8 : (player.sprinting ? 4 : 1), player.sliding ? 2.0 : 0.9);
-    player.effectTimer = player.sliding ? 0.045 : (player.sprinting ? 0.085 : 0.22);
+    const flowSpray = player.flow > 0;
+    spawnMotionSpray(
+      player,
+      player.sliding ? 9 : (flowSpray ? 7 : (player.sprinting ? 4 : 1)),
+      player.sliding || flowSpray ? 1.8 : (player.sprinting ? 1.1 : 0.9)
+    );
+    player.effectTimer = player.sliding ? 0.045 : (flowSpray ? 0.065 : (player.sprinting ? 0.085 : 0.22));
   }
 
   if (moving && player.grounded) {
@@ -3092,8 +3097,8 @@ function updateCamera(delta) {
   const right = new THREE.Vector3(Math.cos(yaw), 0, Math.sin(yaw)).normalize();
   const sliding = !!player.sliding;
   const target = player.position.clone().add(new THREE.Vector3(0, sliding ? 0.98 : 1.38, 0));
-  const distance = sliding ? 5.35 : 6.15;
-  const height = sliding ? 1.72 : 2.18;
+  const distance = sliding ? 5.25 : 6.35;
+  const height = sliding ? 1.48 : 2.18;
   const shoulder = 0.48;
   const lateralVelocity = player.velocity.x * right.x + player.velocity.z * right.z;
   const forwardVelocity = player.velocity.x * forward.x + player.velocity.z * forward.z;
