@@ -2391,6 +2391,7 @@ let cameraShake = 0;
 let jumpQueued = false;
 let jumpHeld = false;
 let sprintLocked = false;
+let sprintWasRequested = false;
 let slideQueued = false;
 let flowQueued = false;
 let lastPlayerPaintPosition = null;
@@ -2732,6 +2733,8 @@ function updatePlayer(delta) {
   if (move.lengthSq() > 1) move.normalize();
 
   const sprintRequested = sprintLocked || keys.has('ShiftLeft') || keys.has('ShiftRight');
+  const sprintPressedThisFrame = sprintRequested && !sprintWasRequested;
+  sprintWasRequested = sprintRequested;
   const moving = move.lengthSq() > 0.025;
   player.slideCooldown = Math.max(0, player.slideCooldown - delta);
 
@@ -2809,7 +2812,7 @@ function updatePlayer(delta) {
 
   const flowBoost = player.flow > 0;
   player.sprinting = !player.sliding && sprintRequested && moving && player.grounded && !fireHeld && !flowBoost;
-  const targetSpeed = flowBoost ? 16.2 : (player.sprinting ? 13.8 : 8.35);
+  const targetSpeed = flowBoost ? 16.2 : (sprintRequested ? 13.8 : 8.35);
 
   if (player.sliding) {
     player.slideTimer -= delta;
@@ -2832,7 +2835,7 @@ function updatePlayer(delta) {
     );
     player.velocity.x = player.slideDirection.x * player.slideSpeed;
     player.velocity.z = player.slideDirection.z * player.slideSpeed;
-    if (player.slideTimer <= 0 || !player.grounded || (sprintRequested && player.slideTimer < 0.95)) {
+    if (player.slideTimer <= 0 || !player.grounded || sprintPressedThisFrame) {
       player.sliding = false;
       player.sprinting = sprintRequested && moving && !fireHeld;
     }
@@ -3255,6 +3258,7 @@ function resetMatch() {
   }
   player.health = 100;
   sprintLocked = false;
+  sprintWasRequested = false;
   updateSprintButton();
   jumpHeld = false;
   slideQueued = false;
@@ -3276,6 +3280,7 @@ function resetMatch() {
 function startGame() {
   if (introActive || gameStarted) return;
   sprintLocked = false;
+  sprintWasRequested = false;
   updateSprintButton();
   gameStarted = false;
   introActive = true;
