@@ -2261,7 +2261,7 @@ function setWeaponHolstered(actor, holstered, instant = false) {
     from: c.weaponBlend ?? 1,
     to: target,
     elapsed: 0,
-    duration: holstered ? 0.30 : 0.36
+    duration: holstered ? 0.26 : 0.22
   };
 }
 function weaponAnchorPose(actor, holstered) {
@@ -2445,7 +2445,7 @@ function getAimPoint() {
   // Raycast from the current rendered camera transform, including same-frame
   // camera movement and recoil, so the reticle and shot destination agree.
   camera.updateMatrixWorld(true);
-  scene.updateMatrixWorld(true);
+  for (const actor of actors) actor.group.updateMatrixWorld(true);
   raycaster.layers.set(1);
   raycaster.setFromCamera(centerScreen, camera);
   const hits = raycaster.intersectObjects(scene.children, true);
@@ -2493,11 +2493,19 @@ function spawnProjectile(origin, target, team, owner) {
 }
 function fireActor(actor, target) {
   if (actor.fireCooldown > 0 || actor.ink < 4 || !actor.group.visible) return;
-  setWeaponHolstered(actor, false);
+  const character = actor.group.userData.character;
+  const wasHolstered = !!character?.weaponHolstered;
+  setWeaponHolstered(actor, false, !!(actor.player && wasHolstered));
   if (actor.player) {
     actor.sprinting = false;
     // The character's local front is -Z; negative yaw matches camera yaw.
     actor.group.rotation.y = -yaw;
+    // On the first shot out of a sprint/slide, move the weapon to its hand
+    // immediately so the projectile originates at the visible barrel.
+    if (wasHolstered) {
+      const gait = clamp(Math.hypot(actor.velocity.x, actor.velocity.z) / 13.8, 0, 1.18);
+      animateActor(actor, gait, 0);
+    }
   }
   actor.fireCooldown = actor.player ? 0.105 : 0.82 + Math.random() * 0.48;
   actor.ink = Math.max(0, actor.ink - (actor.player ? 3.7 : 3.2));
@@ -2907,8 +2915,8 @@ function updatePlayer(delta) {
   const yawDelta = Math.atan2(Math.sin(cameraFacing - player.group.rotation.y), Math.cos(cameraFacing - player.group.rotation.y));
   player.group.rotation.y += yawDelta * (1 - Math.exp(-30 * delta));
 
-  if (player.sprinting || player.sliding) setWeaponHolstered(player, true);
-  else if (!fireHeld) setWeaponHolstered(player, false);
+  if ((player.sprinting || player.sliding) && !fireHeld) setWeaponHolstered(player, true);
+  else setWeaponHolstered(player, false);
 
   player.fireCooldown = Math.max(0, player.fireCooldown - delta);
   const onFriendlyInk = hasFriendlyInkUnderfoot(player.position.x, player.position.z, BLUE);
