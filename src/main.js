@@ -117,6 +117,7 @@ const renderer = new THREE.WebGLRenderer({
 });
 renderer.setPixelRatio(Math.min(devicePixelRatio || 1, isTouch ? 1.15 : 1.4));
 renderer.setSize(innerWidth, innerHeight);
+skyTexture.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
