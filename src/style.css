@@ -746,3 +746,44 @@ button { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
 @media (prefers-reduced-motion: reduce) {
   .hit-flash.visible { animation: none; }
 }
+
+
+/* Crosshair feedback is tied to actual projectile hits, not just firing. */
+.crosshair {
+  transition: transform .075s ease-out, opacity .08s ease;
+}
+.crosshair.is-firing {
+  transform: translate(-50%, -50%) scale(.84);
+}
+.crosshair::after {
+  content: '';
+  position: absolute;
+  inset: -5px;
+  border: 1px solid transparent;
+  opacity: 0;
+  transform: scale(.5) rotate(45deg);
+  transition: opacity .08s ease, transform .12s ease, border-color .08s ease;
+}
+.crosshair.is-hit::after {
+  opacity: 1;
+  border-color: rgba(155,255,240,.96);
+  box-shadow: 0 0 9px rgba(32,216,233,.45), inset 0 0 7px rgba(32,216,233,.12);
+  transform: scale(1.18) rotate(45deg);
+}
+.crosshair.is-hit i, .crosshair.is-hit b {
+  background: #bafff3;
+  box-shadow: 0 0 8px rgba(32,216,233,.9);
+}
+.crosshair.is-elimination::after {
+  opacity: 1;
+  border-color: #ffe1a4;
+  box-shadow: 0 0 13px rgba(255,192,106,.75), inset 0 0 9px rgba(255,192,106,.25);
+  transform: scale(1.48) rotate(45deg);
+}
+.crosshair.is-elimination i, .crosshair.is-elimination b {
+  background: #ffe8b6;
+  box-shadow: 0 0 10px rgba(255,192,106,.9);
+}
+@media (prefers-reduced-motion: reduce) {
+  .crosshair, .crosshair::after { transition: none; }
+}
