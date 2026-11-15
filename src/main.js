@@ -2550,7 +2550,14 @@ function getAimPoint() {
   raycaster.layers.set(1);
   raycaster.setFromCamera(centerScreen, camera);
   const hits = raycaster.intersectObjects(scene.children, true);
-  if (hits.length) return hits[0].point.clone();
+  // Ignore the local operator and their two animated grip hands; otherwise
+  // the third-person aim ray can collide with the player model before targets.
+  for (const hit of hits) {
+    let owner = hit.object;
+    while (owner && owner !== player.group) owner = owner.parent;
+    if (owner === player.group) continue;
+    return hit.point.clone();
+  }
   return raycaster.ray.origin.clone().addScaledVector(raycaster.ray.direction, 32);
 }
 function muzzlePosition(actor) {
