@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import './style.css';
 
@@ -2075,231 +2076,287 @@ function updateParticles(delta) {
 
 
 function makeCharacter(team, variation = 0) {
+  // Original athletic arena-operator design. Every visible body surface is
+  // skinned to a named humanoid bone, rather than being a collection of
+  // independently animated toy parts.
   const group = new THREE.Group();
   const palette = TEAM[team];
-  const teamBase = toonMat('crew-base-' + team, team === BLUE ? 0x168fa8 : 0xc95142);
-  const teamDark = toonMat('crew-dark-' + team, team === BLUE ? 0x12394a : 0x552b32);
-  const teamLight = toonMat('crew-light-' + team, team === BLUE ? 0x39e7f0 : 0xff8767);
-  const cloth = toonMat('crew-cloth-' + team, team === BLUE ? 0x263e50 : 0x4a3440);
-  const sole = toonMat('crew-sole-' + team, 0x17252f);
+  const teamBase = toonMat('operator-primary-' + team, team === BLUE ? 0x087e9a : 0xb83c31);
+  const teamDark = toonMat('operator-dark-' + team, team === BLUE ? 0x123342 : 0x422932);
+  const teamLight = toonMat('operator-highlight-' + team, team === BLUE ? 0x39e7f0 : 0xff8767);
+  const cloth = toonMat('operator-cloth-' + team, team === BLUE ? 0x263e50 : 0x49333c);
+  const pants = toonMat('operator-pants-' + team, team === BLUE ? 0x263745 : 0x3d3039);
+  const boot = toonMat('operator-boots', 0x17232e);
+  const sole = toonMat('operator-sole', 0x090f17);
+  const metal = toonMat('operator-metal', 0x758994);
   const skinColors = [0xb87555, 0xd79a73, 0x86513f, 0xe0ad87, 0x9c624b];
   const hairColors = [0x17242e, 0x41251f, 0x8a542d, 0x252b43, 0x572d47];
-  const skin = toonMat('crew-skin-' + variation, skinColors[variation % skinColors.length]);
-  const hair = toonMat('crew-hair-' + variation, hairColors[variation % hairColors.length]);
-  const gloveMat = toonMat('crew-glove-' + team, team === BLUE ? 0x183d4b : 0x4b2d32);
-  const eyeWhite = toonMat('crew-eye-white', 0xfff7e9);
-  const eyeDark = toonMat('crew-eye-dark', 0x18232d);
+  const skin = toonMat('operator-skin-' + variation, skinColors[variation % skinColors.length]);
+  const hair = toonMat('operator-hair-' + variation, hairColors[variation % hairColors.length]);
+  const glove = toonMat('operator-glove-' + team, team === BLUE ? 0x183d4b : 0x4b2d32);
+  const eyeWhite = toonMat('operator-eye-white', 0xfff7e9);
+  const eyeDark = toonMat('operator-eye-dark', 0x18232d);
+  const accent = toonMat('operator-accent-' + variation,
+    [0xffd36e, 0xa6f4df, 0xffa7c4, 0xc4b7ff, 0xffd3a1][variation % 5]);
   const highlight = new THREE.MeshBasicMaterial({ color: 0xffffff });
-  const accent = toonMat('crew-personal-accent-' + variation, [0xffd36e, 0xa6f4df, 0xffa7c4, 0xc4b7ff, 0xffd3a1][variation % 5]);
 
-  const part = (geometry, material, parent, x, y, z, sx = 1, sy = 1, sz = 1) => {
-    const item = mesh(geometry, material, parent, x, y, z);
-    item.scale.set(sx, sy, sz);
-    // Only the larger, opaque body forms cast shadows; small facial and trim
-    // details stay lightweight while the full crew gains grounded silhouettes.
-    item.castShadow = material === teamBase || material === teamDark || material === cloth || material === skin;
-    item.receiveShadow = false;
+  const bones = [];
+  const boneIndex = new Map();
+  const makeBone = (name, parent, position) => {
+    const item = new THREE.Bone();
+    item.name = name;
+    item.position.set(position[0], position[1], position[2]);
+    parent.add(item);
+    boneIndex.set(item, bones.length);
+    bones.push(item);
     return item;
   };
-  const sphere = shared.sphere;
-  const smallSphere = shared.smallSphere;
-  const capsuleUpper = shared.characterUpper;
-  const capsuleLower = shared.characterLower;
-  const capsuleLeg = shared.characterLeg;
-  const torsoPivot = new THREE.Group();
-  torsoPivot.position.set(0, 0.80, 0);
-  group.add(torsoPivot);
 
-  // Rounded sports jacket and fitted waist; no box-shaped torso or block joints.
-  part(new THREE.CapsuleGeometry(0.325, 0.43, 5, 16), teamBase, torsoPivot, 0, 0.43, 0.005, 1.06, 1.0, 0.82);
-  part(sphere, cloth, torsoPivot, 0, 0.43, 0.018, 0.365, 0.47, 0.285);
-  part(sphere, teamDark, torsoPivot, 0, 0.10, 0.005, 0.30, 0.19, 0.245);
-  part(sphere, teamLight, torsoPivot, 0, 0.24, -0.263, 0.095, 0.18, 0.035);
-  part(sphere, accent, torsoPivot, 0.205, 0.43, -0.253, 0.065, 0.055, 0.025);
-  part(sphere, teamLight, torsoPivot, -0.205, 0.43, -0.253, 0.065, 0.055, 0.025);
-  part(new THREE.TorusGeometry(0.115, 0.018, 6, 18), teamLight, torsoPivot, 0, 0.63, 0, 1, 1, 0.82);
-  part(sphere, skin, torsoPivot, 0, 0.80, 0, 0.135, 0.17, 0.13);
+  // Root and upper-body chain.
+  const rigRoot = makeBone('root', group, [0, 0, 0]);
+  const torsoPivot = makeBone('hips', rigRoot, [0, 0.80, 0]);
+  const spine = makeBone('spine', torsoPivot, [0, 0.12, 0]);
+  const chest = makeBone('chest', spine, [0, 0.29, 0]);
+  const neck = makeBone('neck', chest, [0, 0.38, 0]);
+  const head = makeBone('head', neck, [0, 0.14, 0]);
+  const backMount = makeBone('back_weapon_mount', chest, [0, 0.03, 0.30]);
 
-  // A compact pressure pack with a visible fluid window and hose.
-  part(new THREE.CapsuleGeometry(0.16, 0.34, 4, 10), teamDark, torsoPivot, 0, 0.40, 0.285, 1.05, 1, 0.72);
-  part(sphere, teamLight, torsoPivot, 0, 0.43, 0.345, 0.105, 0.17, 0.055);
-  part(new THREE.TorusGeometry(0.11, 0.018, 6, 16), accent, torsoPivot, 0, 0.43, 0.39, 1, 1, 0.45);
-  const hoseCurve = new THREE.CatmullRomCurve3([
-    new THREE.Vector3(0.12, 0.50, 0.28),
-    new THREE.Vector3(0.30, 0.45, 0.19),
-    new THREE.Vector3(0.29, 0.15, 0.04),
-    new THREE.Vector3(0.18, 0.10, -0.08)
-  ]);
-  part(new THREE.TubeGeometry(hoseCurve, 12, 0.025, 6, false), teamLight, torsoPivot, 0, 0, 0);
-
-  // Head pivot: deliberately larger and softer, with readable facial features.
-  const head = new THREE.Group();
-  head.position.set(0, 0.94, -0.012);
-  torsoPivot.add(head);
-  part(sphere, skin, head, 0, 0, 0, 0.325, 0.345, 0.292);
-  part(sphere, hair, head, 0, 0.205, 0.035, 0.34, 0.235, 0.31);
-  part(sphere, hair, head, 0, 0.085, -0.245, 0.29, 0.13, 0.09);
-  for (const side of [-1, 1]) {
-    part(sphere, skin, head, side * 0.306, -0.045, -0.012, 0.065, 0.09, 0.07);
-    part(sphere, eyeWhite, head, side * 0.112, -0.015, -0.267, 0.087, 0.105, 0.045);
-    part(sphere, eyeDark, head, side * 0.105, -0.017, -0.307, 0.045, 0.071, 0.025);
-    part(sphere, highlight, head, side * 0.09, 0.018, -0.329, 0.018, 0.023, 0.012);
-    const brow = part(capsuleUpper, hair, head, side * 0.11, 0.105, -0.264, 0.38, 0.18, 0.24);
-    brow.rotation.z = side * -0.12;
-    part(sphere, accent, head, side * 0.20, -0.13, -0.246, 0.045, 0.022, 0.014);
-  }
-  part(sphere, skin, head, 0, -0.075, -0.296, 0.045, 0.04, 0.035);
-  part(sphere, skin, head, -0.075, -0.105, -0.278, 0.105, 0.075, 0.075);
-  part(sphere, skin, head, 0.075, -0.105, -0.278, 0.105, 0.075, 0.075);
-  part(sphere, eyeDark, head, 0, -0.105, -0.354, 0.048, 0.032, 0.026);
-  const smile = new THREE.CatmullRomCurve3([
-    new THREE.Vector3(-0.07, -0.16, -0.276),
-    new THREE.Vector3(0, -0.185, -0.295),
-    new THREE.Vector3(0.07, -0.16, -0.276)
-  ]);
-  part(new THREE.TubeGeometry(smile, 8, 0.012, 5, false), eyeDark, head);
-
-  // Separate animal-inspired details keep the humanoid rig editable and light.
-  for (const side of [-1, 1]) {
-    if (variation % 5 === 2) {
-      part(sphere, hair, head, side * 0.245, 0.275, 0.02, 0.105, 0.11, 0.09);
-      part(sphere, accent, head, side * 0.245, 0.277, -0.045, 0.057, 0.065, 0.035);
-    } else {
-      const ear = part(variation % 5 === 3 ? shared.longEar : shared.ear, hair, head,
-        side * 0.205, variation % 5 === 3 ? 0.385 : 0.31, 0.015,
-        variation % 5 === 3 ? 0.82 : 0.88, variation % 5 === 3 ? 1.30 : 1.0, 0.64);
-      ear.rotation.z = side * (variation % 5 === 3 ? -0.10 : 0.22);
-      if (variation % 5 !== 4) {
-        const inner = part(sphere, accent, head, side * 0.205, 0.31, -0.075, 0.045, 0.105, 0.018);
-        inner.rotation.z = side * 0.22;
-      } else {
-        part(shared.smallSphere, accent, head, side * 0.34, 0.39, 0.04, 0.045, 0.045, 0.045);
-      }
-    }
-  }
-
-  // Distinct swept ink-lock hairstyles; rounded tubes replace square hair blocks.
-  const hairSets = [
-    [[-0.23,0.18,0.02],[-0.34,0.23,0.12],[-0.42,0.05,0.28]],
-    [[-0.12,0.28,0.02],[-0.04,0.42,0.12],[0.08,0.38,0.30]],
-    [[0.03,0.25,0.05],[0.18,0.38,0.17],[0.32,0.20,0.30]],
-    [[0.21,0.17,0.03],[0.36,0.14,0.10],[0.43,-0.03,0.25]]
-  ];
-  for (let i = 0; i < hairSets.length; i++) {
-    const pts = hairSets[i].map((p) => new THREE.Vector3(p[0], p[1], p[2]));
-    const strand = new THREE.CatmullRomCurve3([
-      new THREE.Vector3(pts[0].x * 0.35, 0.18 + pts[0].y * 0.65, 0.015),
-      pts[0], pts[1], pts[2]
-    ]);
-    part(new THREE.TubeGeometry(strand, 14, i === variation % 4 ? 0.085 : 0.064, 7, false), hair, head);
-  }
-  if (variation % 2 === 0) {
-    part(new THREE.TorusGeometry(0.30, 0.027, 6, 24), accent, head, 0, 0.19, 0.02, 1, 0.42, 0.92);
-  } else {
-    part(sphere, teamLight, head, 0, 0.32, 0.04, 0.12, 0.045, 0.11);
-  }
-
-  // Pivoted arms with elbows and rounded gloves, all independently animated.
-  const makeArm = (side) => {
-    const shoulder = new THREE.Group();
-    shoulder.position.set(side * 0.345, 0.64, -0.005);
-    torsoPivot.add(shoulder);
-    part(sphere, teamBase, shoulder, 0, -0.02, 0, 0.155, 0.16, 0.16);
-    part(capsuleUpper, cloth, shoulder, 0, -0.20, 0, 1, 1, 1);
-    part(new THREE.TorusGeometry(0.105, 0.018, 5, 14), teamLight, shoulder, 0, -0.35, 0, 1, 1, 0.9);
-    const elbow = new THREE.Group();
-    elbow.position.set(0, -0.365, 0);
-    shoulder.add(elbow);
-    part(capsuleLower, skin, elbow, 0, -0.15, -0.015, 1, 1, 1);
-    part(sphere, skin, elbow, 0, -0.30, -0.045, 0.105, 0.10, 0.105);
-    part(sphere, teamLight, elbow, 0, -0.30, -0.12, 0.11, 0.085, 0.055);
-    return { shoulder, elbow };
+  const makeArm = (side, label) => {
+    const shoulder = makeBone(label + '_shoulder', chest, [side * 0.335, 0.105, 0]);
+    const elbow = makeBone(label + '_elbow', shoulder, [0, -0.345, 0]);
+    const wrist = makeBone(label + '_wrist', elbow, [0, -0.315, -0.012]);
+    const hand = makeBone(label + '_hand', wrist, [0, -0.045, -0.012]);
+    return { shoulder, elbow, wrist, hand };
   };
-  const leftArm = makeArm(-1);
-  const rightArm = makeArm(1);
-  rightArm.shoulder.rotation.x = 0.38;
-  leftArm.shoulder.rotation.x = 0.60;
+  const leftArm = makeArm(-1, 'left_arm');
+  const rightArm = makeArm(1, 'right_arm');
 
-  // The weapon is parented to the right hand, so it follows the wrist and elbow.
+  // Independent hip, knee and ankle joints give the legs a real three-part
+  // stride and let the slide pose fold around a planted knee.
+  const legs = [];
+  for (const side of [-1, 1]) {
+    const label = side < 0 ? 'left_leg' : 'right_leg';
+    const hip = makeBone(label + '_hip', rigRoot, [side * 0.165, 0.76, 0.012]);
+    const knee = makeBone(label + '_knee', hip, [0, -0.37, 0]);
+    const ankle = makeBone(label + '_ankle', knee, [0, -0.335, -0.018]);
+    legs.push({ hip, knee, ankle, side });
+  }
+
+  // Five individually animated digits on each hand. These are real rig bones,
+  // not flat decals or a single mitten mesh.
+  const fingerBones = [];
+  const buildFingers = (hand, side, label) => {
+    const xOffsets = [-0.050, -0.024, 0.002, 0.028];
+    for (let i = 0; i < 5; i++) {
+      const thumb = i === 4;
+      const x = thumb ? side * 0.073 : xOffsets[i];
+      const finger = makeBone(label + '_finger_' + (i + 1), hand,
+        [x, thumb ? -0.012 : -0.032, thumb ? -0.018 : -0.048]);
+      if (thumb) finger.rotation.z = side * -0.78;
+      else finger.rotation.z = (i - 1.5) * 0.035;
+      fingerBones.push({ bone: finger, thumb, side, index: i });
+    }
+  };
+  buildFingers(leftArm.hand, -1, 'left_hand');
+  buildFingers(rightArm.hand, 1, 'right_hand');
+
+  group.updateMatrixWorld(true);
+
+  // Build compact geometry batches by material. Each vertex is weighted to
+  // its owning bone; Three.js then performs actual GPU skeletal skinning.
+  const partBuckets = new Map();
+  const addPart = (geometry, material, ownerBone, position, rotation, scale) => {
+    const p = new THREE.Vector3(position[0], position[1], position[2]);
+    const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(rotation[0], rotation[1], rotation[2]));
+    const s = new THREE.Vector3(scale[0], scale[1], scale[2]);
+    const local = new THREE.Matrix4().compose(p, q, s);
+    const transform = new THREE.Matrix4().multiplyMatrices(ownerBone.matrixWorld, local);
+    geometry.applyMatrix4(transform);
+
+    const count = geometry.getAttribute('position').count;
+    const indices = new Uint16Array(count * 4);
+    const weights = new Float32Array(count * 4);
+    const index = boneIndex.get(ownerBone);
+    for (let i = 0; i < count; i++) {
+      indices[i * 4] = index;
+      weights[i * 4] = 1;
+    }
+    geometry.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(indices, 4));
+    geometry.setAttribute('skinWeight', new THREE.Float32BufferAttribute(weights, 4));
+    if (!partBuckets.has(material)) partBuckets.set(material, []);
+    partBuckets.get(material).push(geometry);
+  };
+  const capsule = (material, owner, radius, length, position, scale = [1, 1, 1], rotation = [0, 0, 0]) =>
+    addPart(new THREE.CapsuleGeometry(radius, length, 4, 10), material, owner, position, rotation, scale);
+  const sphere = (material, owner, position, scale, rotation = [0, 0, 0]) =>
+    addPart(new THREE.SphereGeometry(1, 14, 10), material, owner, position, rotation, scale);
+  const box = (material, owner, position, scale, rotation = [0, 0, 0]) =>
+    addPart(new THREE.BoxGeometry(1, 1, 1), material, owner, position, rotation, scale);
+  const cylinder = (material, owner, position, scale, rotation = [0, 0, 0]) =>
+    addPart(new THREE.CylinderGeometry(0.5, 0.5, 1, 10), material, owner, position, rotation, scale);
+
+  // Athletic torso, fitted tactical vest, shoulder line and waist.
+  capsule(cloth, spine, 0.255, 0.42, [0, 0.10, 0.012], [1.02, 1.02, 0.78]);
+  capsule(teamBase, chest, 0.274, 0.30, [0, 0.01, -0.018], [1.08, 1.0, 0.76]);
+  capsule(teamDark, torsoPivot, 0.225, 0.13, [0, -0.045, 0], [1.08, 1.0, 0.82]);
+  box(teamDark, torsoPivot, [0, -0.105, -0.185], [0.53, 0.075, 0.055]);
+  box(metal, torsoPivot, [0, -0.105, -0.218], [0.115, 0.092, 0.024]);
+  box(accent, torsoPivot, [0, -0.105, -0.235], [0.042, 0.046, 0.012]);
+
+  // Layered chest plates and harness straps give the silhouette a readable
+  // competitive-shooter loadout without making the operator bulky.
+  box(teamDark, chest, [0, 0.015, -0.226], [0.34, 0.30, 0.055]);
+  box(teamLight, chest, [0, 0.13, -0.260], [0.19, 0.045, 0.018]);
+  box(teamLight, chest, [0, -0.13, -0.258], [0.18, 0.028, 0.018]);
+  for (const side of [-1, 1]) {
+    box(teamDark, chest, [side * 0.157, 0.00, -0.246], [0.052, 0.38, 0.045],
+      [0, 0, side * -0.10]);
+    box(metal, chest, [side * 0.158, 0.12, -0.274], [0.046, 0.065, 0.018]);
+    box(teamBase, chest, [side * 0.245, -0.015, -0.090], [0.055, 0.22, 0.13]);
+  }
+  box(accent, chest, [0, 0.015, -0.267], [0.105, 0.105, 0.022]);
+  box(teamDark, chest, [0, 0.015, -0.281], [0.065, 0.065, 0.012]);
+
+  // Paint-reservoir pack and hose sit behind the torso and remain part of the
+  // character rig, so the equipment follows jumps, turns and slides.
+  cylinder(teamDark, chest, [0, 0.015, 0.255], [0.255, 0.51, 0.255]);
+  cylinder(metal, chest, [0, 0.03, 0.405], [0.17, 0.12, 0.17]);
+  box(teamLight, chest, [0, -0.01, 0.391], [0.12, 0.20, 0.025]);
+  box(accent, chest, [0, 0.18, 0.394], [0.17, 0.035, 0.025]);
+  capsule(teamLight, chest, 0.021, 0.30, [0.16, -0.11, 0.245], [1, 1, 1], [0, 0, -0.32]);
+
+  // Neck, natural-sized head and compact facial features. No animal ears,
+  // oversized cartoon eyes or oversized bobble-head proportions.
+  capsule(skin, neck, 0.092, 0.10, [0, 0.00, 0], [1, 1, 0.92]);
+  sphere(skin, head, [0, 0.005, 0], [0.205, 0.235, 0.194]);
+  sphere(hair, head, [0, 0.125, 0.010], [0.213, 0.145, 0.202]);
+  sphere(hair, head, [0, 0.045, -0.173], [0.178, 0.078, 0.045]);
+  for (const side of [-1, 1]) {
+    sphere(skin, head, [side * 0.202, -0.005, 0.005], [0.034, 0.052, 0.039]);
+    sphere(eyeWhite, head, [side * 0.076, 0.020, -0.177], [0.027, 0.034, 0.012]);
+    sphere(eyeDark, head, [side * 0.074, 0.018, -0.188], [0.014, 0.022, 0.008]);
+    capsule(hair, head, 0.018, 0.055, [side * 0.076, 0.067, -0.183],
+      [1, 0.65, 0.65], [0, 0, side * -0.08]);
+    sphere(accent, head, [side * 0.205, 0.02, 0.005], [0.025, 0.025, 0.025]);
+  }
+  sphere(skin, head, [0, -0.025, -0.197], [0.027, 0.035, 0.027]);
+  box(eyeDark, head, [0, -0.105, -0.181], [0.066, 0.012, 0.009]);
+  // Individual hair locks vary the squad silhouettes while keeping one shared rig.
+  const hairStyles = variation % 5;
+  if (hairStyles === 0 || hairStyles === 2) {
+    capsule(hair, head, 0.050, 0.15, [-0.115, 0.115, 0.055], [1.0, 0.82, 0.9], [0, 0, -0.72]);
+    capsule(hair, head, 0.045, 0.13, [0.105, 0.13, 0.045], [1.0, 0.82, 0.9], [0, 0, 0.60]);
+  } else if (hairStyles === 1) {
+    capsule(hair, head, 0.045, 0.18, [0.015, 0.205, 0.055], [1.0, 0.85, 0.9], [0, 0, -0.12]);
+    capsule(hair, head, 0.036, 0.12, [0.13, 0.13, 0.02], [1.0, 0.8, 0.9], [0, 0, 0.85]);
+  } else if (hairStyles === 3) {
+    // A close-fitting helmet variant with a short visor.
+    sphere(teamDark, head, [0, 0.15, 0.005], [0.228, 0.15, 0.215]);
+    box(teamLight, head, [0, 0.065, -0.196], [0.31, 0.035, 0.028]);
+    box(metal, head, [0, -0.005, -0.198], [0.23, 0.035, 0.022]);
+  } else {
+    capsule(hair, head, 0.052, 0.14, [-0.11, 0.12, 0.05], [1.0, 0.82, 0.9], [0, 0, -0.78]);
+    capsule(hair, head, 0.045, 0.16, [0.12, 0.11, 0.045], [1.0, 0.82, 0.9], [0, 0, 0.78]);
+  }
+
+  // Articulated shoulders, sleeves, forearm guards, gloves and finger bones.
+  const buildArmSurfaces = (arm, side) => {
+    sphere(teamBase, arm.shoulder, [0, 0.005, 0], [0.158, 0.142, 0.155]);
+    sphere(teamLight, arm.shoulder, [0, 0.035, -0.132], [0.105, 0.035, 0.024]);
+    capsule(cloth, arm.shoulder, 0.104, 0.27, [0, -0.17, 0], [1.04, 1, 1]);
+    sphere(teamDark, arm.elbow, [0, 0, -0.01], [0.112, 0.104, 0.11]);
+    capsule(teamBase, arm.elbow, 0.086, 0.25, [0, -0.145, 0], [1.05, 1, 0.96]);
+    box(teamDark, arm.elbow, [0, -0.12, -0.083], [0.15, 0.18, 0.055],
+      [side * -0.08, 0, 0]);
+    box(teamLight, arm.elbow, [0, -0.12, -0.116], [0.09, 0.035, 0.018]);
+    capsule(glove, arm.wrist, 0.076, 0.095, [0, -0.012, 0], [1, 1, 0.95]);
+    sphere(glove, arm.hand, [0, -0.005, -0.035], [0.080, 0.070, 0.105]);
+    sphere(skin, arm.hand, [0, -0.004, -0.092], [0.052, 0.040, 0.026]);
+  };
+  buildArmSurfaces(leftArm, -1);
+  buildArmSurfaces(rightArm, 1);
+  for (const item of fingerBones) {
+    capsule(glove, item.bone, item.thumb ? 0.014 : 0.0125, item.thumb ? 0.055 : 0.052,
+      [0, -0.034, -0.012], [1, 1, 0.82],
+      item.thumb ? [0, 0, item.side * 0.72] : [0, 0, (item.index - 1.5) * 0.025]);
+    sphere(glove, item.bone, [0, -0.074, -0.014], [0.013, 0.014, 0.013]);
+  }
+
+  // Cargo trousers, reinforced knee pads, shin plates and proper boots.
+  for (const leg of legs) {
+    const side = leg.side;
+    capsule(pants, leg.hip, 0.132, 0.31, [0, -0.17, 0.005], [1.02, 1.05, 0.94]);
+    box(teamDark, leg.hip, [side * 0.105, -0.16, -0.082], [0.072, 0.19, 0.08]);
+    box(teamLight, leg.hip, [side * 0.105, -0.115, -0.125], [0.065, 0.025, 0.018]);
+    sphere(teamDark, leg.knee, [0, 0, 0], [0.124, 0.115, 0.12]);
+    box(teamBase, leg.knee, [0, -0.005, -0.102], [0.215, 0.16, 0.075]);
+    box(teamLight, leg.knee, [0, 0.005, -0.145], [0.105, 0.027, 0.014]);
+    capsule(pants, leg.knee, 0.096, 0.265, [0, -0.15, 0], [1.04, 1.02, 0.98]);
+    box(teamDark, leg.knee, [0, -0.17, -0.082], [0.135, 0.22, 0.045]);
+    box(accent, leg.knee, [0, -0.15, -0.108], [0.052, 0.075, 0.015]);
+    box(sole, leg.ankle, [0, -0.087, -0.074], [0.245, 0.055, 0.415]);
+    box(boot, leg.ankle, [0, -0.037, -0.075], [0.225, 0.13, 0.37]);
+    box(teamLight, leg.ankle, [0, 0.015, -0.18], [0.15, 0.035, 0.025]);
+    box(metal, leg.ankle, [0, -0.015, -0.105], [0.12, 0.018, 0.018]);
+  }
+
+  // Merge the skinned surfaces into a small set of material batches.
+  const skeleton = new THREE.Skeleton(bones);
+  skeleton.calculateInverses();
+  const skinnedMeshes = [];
+  for (const [material, geometries] of partBuckets) {
+    const merged = mergeGeometries(geometries, false);
+    for (const geometry of geometries) geometry.dispose();
+    if (!merged) continue;
+    merged.computeBoundingSphere();
+    const skinned = new THREE.SkinnedMesh(merged, material);
+    skinned.name = 'operator_skinned_surface';
+    skinned.castShadow = true;
+    skinned.receiveShadow = false;
+    skinned.frustumCulled = false;
+    skinned.layers.enable(1);
+    group.add(skinned);
+    skinnedMeshes.push(skinned);
+  }
+  group.updateMatrixWorld(true);
+  for (const skinned of skinnedMeshes) skinned.bind(skeleton);
+
+  // Compact two-handed pulse sprayer, retained as a separate prop so the
+  // existing Kenney blaster upgrade and muzzle logic continue to work.
   const weapon = new THREE.Group();
-  weapon.position.set(0.025, -0.28, -0.17);
-  rightArm.elbow.add(weapon);
+  weapon.position.set(0.02, -0.05, -0.05);
+  group.add(weapon);
   const proceduralWeapon = new THREE.Group();
   const weaponVisual = new THREE.Group();
   weapon.add(proceduralWeapon, weaponVisual);
-  const gripHands = [];
-  const backMount = new THREE.Group();
-  backMount.position.set(0.21, 0.31, 0.29);
-  torsoPivot.add(backMount);
-  const barrel = part(new THREE.CylinderGeometry(0.105, 0.145, 0.70, 12), teamDark, proceduralWeapon, 0, 0, -0.40);
+  const barrel = mesh(new THREE.CylinderGeometry(0.105, 0.145, 0.70, 12),
+    teamDark, proceduralWeapon, 0, 0, -0.40);
   barrel.rotation.x = Math.PI / 2;
-  const barrelSleeve = part(new THREE.CylinderGeometry(0.14, 0.14, 0.18, 12), teamBase, proceduralWeapon, 0, 0, -0.55);
-  barrelSleeve.rotation.x = Math.PI / 2;
-  const nozzle = part(new THREE.CylinderGeometry(0.19, 0.14, 0.12, 14), teamLight, proceduralWeapon, 0, 0, -0.79);
+  const sleeve = mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.18, 12),
+    teamBase, proceduralWeapon, 0, 0, -0.55);
+  sleeve.rotation.x = Math.PI / 2;
+  const nozzle = mesh(new THREE.CylinderGeometry(0.19, 0.14, 0.12, 14),
+    teamLight, proceduralWeapon, 0, 0, -0.79);
   nozzle.rotation.x = Math.PI / 2;
-  const muzzleRing = part(new THREE.TorusGeometry(0.135, 0.027, 6, 16), accent, proceduralWeapon, 0, 0, -0.86);
+  const muzzleRing = mesh(new THREE.TorusGeometry(0.135, 0.027, 6, 16),
+    accent, proceduralWeapon, 0, 0, -0.86);
   muzzleRing.rotation.x = Math.PI / 2;
-  part(sphere, teamBase, proceduralWeapon, 0.16, 0.10, 0.04, 0.18, 0.16, 0.21);
-  part(new THREE.CylinderGeometry(0.12, 0.12, 0.25, 10), teamDark, proceduralWeapon, 0.16, -0.05, 0.03, 1, 1, 1);
-  const flash = part(sphere, new THREE.MeshBasicMaterial({
+  mesh(shared.sphere, teamBase, proceduralWeapon, 0.16, 0.10, 0.04).scale.set(0.18, 0.16, 0.21);
+  mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.25, 10),
+    teamDark, proceduralWeapon, 0.16, -0.05, 0.03);
+  const flash = mesh(shared.sphere, new THREE.MeshBasicMaterial({
     color: palette.ink, transparent: true, opacity: 0.95, depthWrite: false
-  }), weapon, 0, 0, -0.94, 0.13, 0.13, 0.13);
+  }), weapon, 0, 0, -0.94);
+  flash.scale.setScalar(0.13);
   flash.visible = false;
-  function addGripHand(x, y, z, phase) {
-    const hand = new THREE.Group();
-    hand.position.set(x, y, z);
-    weapon.add(hand);
-    part(sphere, skin, hand, 0, 0, 0, 0.09, 0.062, 0.115);
-    part(sphere, gloveMat, hand, 0, -0.012, -0.036, 0.092, 0.053, 0.078);
-    const fingers = new THREE.InstancedMesh(shared.finger, gloveMat, 5);
-    fingers.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    fingers.castShadow = false;
-    hand.add(fingers);
-    const poses = [];
-    const digit = new THREE.Object3D();
-    for (let i = 0; i < 5; i++) {
-      const thumb = i === 4;
-      const spread = i - 1.5;
-      const position = new THREE.Vector3(thumb ? 0.092 : spread * 0.041, thumb ? 0.015 : -0.038, thumb ? -0.01 : -0.083 - (1.5 - Math.abs(spread)) * 0.006);
-      const rotation = new THREE.Euler(thumb ? 0.68 : 1.02, 0, thumb ? -0.94 : spread * 0.035);
-      const scale = new THREE.Vector3(0.86, thumb ? 0.86 : 0.92, 0.86);
-      digit.position.copy(position); digit.rotation.copy(rotation); digit.scale.copy(scale); digit.updateMatrix();
-      fingers.setMatrixAt(i, digit.matrix);
-      poses.push({ position, rotation, scale });
-    }
-    fingers.instanceMatrix.needsUpdate = true;
-    gripHands.push({ fingers, poses, phase, baseCurl: 0.025 });
-  }
-  addGripHand(0.145, -0.105, -0.055, 0.3);
-  addGripHand(-0.135, -0.035, -0.54, 1.4);
 
-  // Athletic shorts, articulated knees, calves and oversized soft sneakers.
-  const legs = [];
-  for (const side of [-1, 1]) {
-    const hip = new THREE.Group();
-    hip.position.set(side * 0.165, 0.77, 0.015);
-    group.add(hip);
-    part(sphere, teamDark, hip, 0, -0.04, 0, 0.16, 0.20, 0.17);
-    part(capsuleLeg, cloth, hip, 0, -0.20, 0, 1, 1, 0.9);
-    const knee = new THREE.Group();
-    knee.position.set(0, -0.37, 0);
-    hip.add(knee);
-    part(sphere, teamBase, knee, 0, 0, 0, 0.14, 0.13, 0.14);
-    part(sphere, teamDark, knee, 0, -0.015, -0.102, 0.145, 0.125, 0.055);
-    part(sphere, accent, knee, 0, -0.015, -0.151, 0.09, 0.065, 0.022);
-    part(capsuleLower, cloth, knee, 0, -0.16, 0, 1.1, 1.12, 1.05);
-    part(sphere, sole, knee, 0, -0.32, -0.07, 0.18, 0.105, 0.28);
-    part(sphere, teamLight, knee, 0, -0.29, -0.105, 0.17, 0.085, 0.26);
-    part(new THREE.TorusGeometry(0.12, 0.018, 5, 14), accent, knee, 0, -0.31, -0.10, 1.1, 0.55, 1.0);
-    legs.push({ hip, knee });
-  }
-
-  group.updateMatrixWorld(true);
-  group.attach(weapon);
   group.userData.character = {
-    torsoPivot, head, leftArm, rightArm, legs, weapon, backMount, flash,
-    proceduralWeapon, weaponVisual, gripHands,
-    defaultLeftArm: 0.60, defaultRightArm: 0.38,
+    rigRoot, skeleton, skinnedMeshes,
+    torsoPivot, spine, chest, neck, head,
+    leftArm, rightArm, legs, fingerBones,
+    weapon, backMount, flash, proceduralWeapon, weaponVisual,
+    gripHands: [],
+    defaultLeftArm: 0.58, defaultRightArm: 0.30,
     weaponHolstered: false, weaponBlend: 1, weaponTransition: null
   };
   group.userData.weapon = weapon;
@@ -2311,6 +2368,7 @@ function makeCharacter(team, variation = 0) {
   group.traverse((node) => { if (node.isMesh) node.layers.enable(1); });
   return group;
 }
+
 
 function setWeaponHolstered(actor, holstered, instant = false) {
   const c = actor.group.userData.character;
@@ -2359,19 +2417,30 @@ function resetCharacterPose(actor) {
   c.torsoPivot.position.set(0, 0.80, 0);
   c.torsoPivot.rotation.set(0, 0, 0);
   c.torsoPivot.scale.set(1, 1, 1);
+  c.spine.rotation.set(0, 0, 0);
+  c.chest.rotation.set(0, 0, 0);
+  c.neck.rotation.set(0, 0, 0);
   c.head.rotation.set(0, 0, 0);
   c.leftArm.shoulder.rotation.set(c.defaultLeftArm, 0, 0);
-  c.leftArm.elbow.rotation.set(0, 0, 0);
+  c.leftArm.elbow.rotation.set(-0.08, 0, 0);
+  c.leftArm.wrist.rotation.set(0, 0, 0);
   c.rightArm.shoulder.rotation.set(c.defaultRightArm, 0, 0);
-  c.rightArm.elbow.rotation.set(0, 0, 0);
+  c.rightArm.elbow.rotation.set(-0.12, 0, 0);
+  c.rightArm.wrist.rotation.set(0, 0, 0);
+  for (const finger of c.fingerBones) {
+    finger.bone.rotation.x = 0;
+    if (finger.thumb) finger.bone.rotation.z = finger.side * -0.78;
+  }
   for (const leg of c.legs) {
     leg.hip.rotation.set(0, 0, 0);
     leg.knee.rotation.set(0, 0, 0);
+    leg.ankle.rotation.set(0, 0, 0);
   }
   actor.ragdollState = null;
   actor.hitTimer = 0;
   actor.landImpact = 0;
 }
+
 function createActor(team, variation, x, z, playerControlled = false) {
   const group = makeCharacter(team, variation);
   const actor = {
@@ -3067,14 +3136,18 @@ function animateActor(actor, moving, delta = 0.016) {
       c.weaponTransition = null;
     }
   }
+
   const weaponDraw = c.weaponTransition ? Math.sin(c.weaponBlend * Math.PI) : 0;
   const t = actor.walkPhase || 0;
-  const speed = clamp(moving, 0, 1);
+  const speed = clamp(moving, 0, 1.15);
   const running = speed > 0.05;
   const sprinting = !!actor.sprinting || actor.flow > 0;
-  const stride = running ? Math.sin(t) * (sprinting ? 1.08 : 0.82) * speed : 0;
-  const idleBreath = running ? 0 : Math.sin(t * 1.45) * 0.014;
-  const bounce = running ? Math.abs(Math.sin(t * 2)) * (sprinting ? 0.105 : 0.065) : Math.sin(t * 0.9) * 0.010 + idleBreath;
+  const sliding = !!actor.sliding;
+  const stride = running ? Math.sin(t) * (sprinting ? 1.12 : 0.82) * speed : 0;
+  const idle = running ? 0 : Math.sin(t * 1.45);
+  const bounce = running
+    ? Math.abs(Math.sin(t * 2)) * (sprinting ? 0.10 : 0.058)
+    : Math.sin(t * 0.9) * 0.009 + idle * 0.012;
   const shot = actor.group.userData.shotTimer || 0;
   actor.group.userData.shotTimer = Math.max(0, shot - delta);
   const shooting = clamp(shot / 0.30, 0, 1);
@@ -3082,67 +3155,98 @@ function animateActor(actor, moving, delta = 0.016) {
   actor.hitTimer = Math.max(0, hit - delta);
   const hitFactor = hit > 0 ? hit / 0.22 : 0;
   const air = actor.player && !actor.grounded ? 1 : 0;
-  const idleGesture = running ? 0 : Math.sin(t * 0.72);
-
-  const sliding = !!actor.sliding;
-  const gripMotion = shooting + (running ? 0.14 : 0) + (sliding ? 0.08 : 0);
-  c.torsoPivot.position.y = (sliding ? 0.47 : 0.80) + bounce + (actor.landImpact > 0 ? -actor.landImpact * 0.08 : 0);
-  c.torsoPivot.rotation.x = sliding ? -0.98 : (running ? (sprinting ? -0.30 : -0.10) : Math.sin(t * 0.55) * 0.025);
   const facingRightSpeed =
     actor.velocity.x * Math.cos(actor.group.rotation.y) +
     actor.velocity.z * Math.sin(actor.group.rotation.y);
-  const movementLean = clamp(-facingRightSpeed * (sliding ? 0.024 : 0.016), -0.28, 0.28);
-  c.torsoPivot.rotation.z = movementLean + hitFactor * 0.16;
-  c.torsoPivot.scale.y = 1 - Math.max(0, actor.landImpact || 0) * 0.12;
-  c.torsoPivot.scale.x = 1 + Math.max(0, actor.landImpact || 0) * 0.06;
-  c.head.rotation.x = Math.sin(t * 1.7) * 0.025 + air * 0.10 + shooting * 0.055;
-  c.head.rotation.y = running ? -stride * 0.06 : idleGesture * 0.10;
-  c.head.rotation.z = Math.sin(t * 0.55) * 0.025 - hitFactor * 0.18;
+  const lateralSpeed =
+    actor.velocity.x * Math.cos(actor.group.rotation.y) +
+    actor.velocity.z * Math.sin(actor.group.rotation.y);
+  const gripMotion = shooting + (running ? 0.14 : 0) + (sliding ? 0.08 : 0);
 
-  c.leftArm.shoulder.rotation.x = c.defaultLeftArm - stride * 0.42 - air * 0.90 + shooting * 0.10 + (sliding ? -0.94 : 0);
-  c.rightArm.shoulder.rotation.x = c.defaultRightArm + stride * 0.36 - air * 0.55 - shooting * 0.22 + (sliding ? -0.72 : 0) - weaponDraw * 0.78;
-  c.leftArm.shoulder.rotation.z = -0.035 + Math.sin(t * 0.9) * 0.035 + hitFactor * 0.42;
-  c.rightArm.shoulder.rotation.z = 0.025 - hitFactor * 0.58 + weaponDraw * 0.28;
-  c.leftArm.elbow.rotation.x = -0.18 - Math.max(0, stride) * 0.22 - air * 0.55;
-  c.rightArm.elbow.rotation.x = -0.08 - shooting * 0.32 - Math.max(0, -stride) * 0.18 - weaponDraw * 0.88;
-  c.leftArm.elbow.rotation.z = -0.06;
-  c.rightArm.elbow.rotation.z = 0.045 - weaponDraw * 0.18;
+  // Pelvis and spine absorb the movement first; the chest counter-rotates so
+  // the shoulders and weapon stay readable during fast turns and strafes.
+  c.torsoPivot.position.y = (sliding ? 0.46 : 0.80) + bounce -
+    (actor.landImpact > 0 ? actor.landImpact * 0.075 : 0);
+  c.torsoPivot.position.x = running ? Math.sin(t * 2) * 0.018 * speed : 0;
+  c.torsoPivot.rotation.x = sliding ? -1.00 :
+    (running ? (sprinting ? -0.32 : -0.12) : Math.sin(t * 0.55) * 0.022);
+  c.torsoPivot.rotation.z = clamp(-lateralSpeed * (sliding ? 0.025 : 0.017), -0.25, 0.25) +
+    hitFactor * 0.16;
+  c.torsoPivot.scale.y = 1 - Math.max(0, actor.landImpact || 0) * 0.12;
+  c.torsoPivot.scale.x = 1 + Math.max(0, actor.landImpact || 0) * 0.055;
+  c.spine.rotation.x = (sprinting ? -0.075 : -0.02) + air * 0.06 + shooting * 0.025;
+  c.spine.rotation.z = Math.sin(t * 2) * (running ? 0.025 * speed : 0.006);
+  c.chest.rotation.x = (actor.player ? -pitch * 0.22 : 0) + shooting * 0.045 -
+    (sliding ? 0.10 : 0);
+  c.chest.rotation.y = clamp(-actor.velocity.x * 0.012, -0.18, 0.18) +
+    (actor.player ? clamp(-pitch * 0.05, -0.06, 0.06) : 0);
+  c.chest.rotation.z = -c.torsoPivot.rotation.z * 0.42 + hitFactor * 0.06;
+  c.neck.rotation.x = (actor.player ? -pitch * 0.12 : 0) + air * 0.06 + shooting * 0.025;
+  c.neck.rotation.y = running ? -stride * 0.035 : Math.sin(t * 0.72) * 0.035;
+  c.head.rotation.x = Math.sin(t * 1.7) * 0.018 + air * 0.09 + shooting * 0.045;
+  c.head.rotation.y = running ? -stride * 0.045 : Math.sin(t * 0.72) * 0.055;
+  c.head.rotation.z = Math.sin(t * 0.55) * 0.018 - hitFactor * 0.16;
+
+  // Weapon-side arm remains braced; the support arm naturally reaches across
+  // the receiver. Sprinting loosens the pose and holsters the weapon.
+  c.leftArm.shoulder.rotation.x = c.defaultLeftArm - stride * 0.31 -
+    air * 0.78 + shooting * 0.10 + (sliding ? -1.00 : 0);
+  c.rightArm.shoulder.rotation.x = c.defaultRightArm + stride * 0.20 -
+    air * 0.50 - shooting * 0.30 + (sliding ? -0.78 : 0) - weaponDraw * 0.68;
+  c.leftArm.shoulder.rotation.z = -0.045 + Math.sin(t * 0.9) * 0.025 +
+    hitFactor * 0.38;
+  c.rightArm.shoulder.rotation.z = 0.03 - hitFactor * 0.52 + weaponDraw * 0.22;
+  c.leftArm.elbow.rotation.x = -0.32 - Math.max(0, stride) * 0.20 -
+    air * 0.46 - shooting * 0.13;
+  c.rightArm.elbow.rotation.x = -0.18 - shooting * 0.26 -
+    Math.max(0, -stride) * 0.16 - weaponDraw * 0.72;
+  c.leftArm.elbow.rotation.z = -0.055;
+  c.rightArm.elbow.rotation.z = 0.035 - weaponDraw * 0.14;
+  c.leftArm.wrist.rotation.x = -0.08 - gripMotion * 0.08;
+  c.rightArm.wrist.rotation.x = -0.04 - shooting * 0.08;
+
+  // Fingers curl around the grip and tighten briefly on each paint burst.
+  for (const item of c.fingerBones) {
+    const curl = 0.16 + gripMotion * 0.23 + Math.sin(t * 1.35 + item.index) * 0.018;
+    item.bone.rotation.x = item.thumb ? 0.30 + gripMotion * 0.12 : curl;
+  }
+
   const backPose = weaponAnchorPose(actor, true);
   const handPose = weaponAnchorPose(actor, false);
   c.weapon.position.copy(backPose.position).lerp(handPose.position, c.weaponBlend);
   c.weapon.quaternion.copy(backPose.quaternion).slerp(handPose.quaternion, c.weaponBlend);
   c.weapon.position.z += (actor.recoil || 0) * 0.55 * c.weaponBlend;
-  for (const grip of c.gripHands || []) {
-    const curl = grip.baseCurl + gripMotion * 0.12 + Math.sin(t * 1.4 + grip.phase) * 0.018;
-    for (let i = 0; i < grip.poses.length; i++) {
-      const pose = grip.poses[i];
-      gripFingerDummy.position.copy(pose.position);
-      gripFingerDummy.rotation.set(pose.rotation.x + curl, pose.rotation.y, pose.rotation.z + curl * 0.12);
-      gripFingerDummy.scale.copy(pose.scale);
-      gripFingerDummy.updateMatrix();
-      grip.fingers.setMatrixAt(i, gripFingerDummy.matrix);
-    }
-    grip.fingers.instanceMatrix.needsUpdate = true;
-  }
 
-  for (let i = 0; i < 2; i++) {
+  // Alternating thigh drive, knee recovery and ankle/toe follow-through.
+  for (let i = 0; i < c.legs.length; i++) {
     const leg = c.legs[i];
     const phase = t + (i === 0 ? 0 : Math.PI);
-    leg.hip.rotation.x = running ? Math.sin(phase) * (sprinting ? 0.95 : 0.72) : Math.sin(t * 0.8 + i) * 0.018;
-    leg.hip.rotation.z = i === 0 ? 0.015 : -0.015;
-    leg.knee.rotation.x = running ? Math.max(0, Math.sin(phase + 0.5)) * (sprinting ? 0.92 : 0.68) : 0.025;
+    const swing = Math.sin(phase);
+    leg.hip.rotation.x = running ? swing * (sprinting ? 1.00 : 0.73) * speed :
+      Math.sin(t * 0.8 + i) * 0.014;
+    leg.hip.rotation.z = (i === 0 ? 0.018 : -0.018) +
+      hitFactor * (i === 0 ? 0.30 : -0.26);
+    leg.knee.rotation.x = running
+      ? Math.max(0, Math.sin(phase + 0.48)) * (sprinting ? 1.10 : 0.78) * speed
+      : 0.018;
+    leg.ankle.rotation.x = running
+      ? -Math.max(0, -Math.sin(phase + 0.35)) * 0.30 * speed
+      : 0;
+
     if (air) {
-      leg.hip.rotation.x = (i === 0 ? 0.52 : -0.70);
-      leg.knee.rotation.x = i === 0 ? 0.82 : 0.60;
+      leg.hip.rotation.x = i === 0 ? 0.48 : -0.66;
+      leg.knee.rotation.x = i === 0 ? 0.78 : 0.58;
+      leg.ankle.rotation.x = i === 0 ? -0.24 : 0.12;
     }
     if (sliding) {
-      // One knee tucks beneath the crouched body while the other leg trails.
-      leg.hip.rotation.x = i === 0 ? 0.68 : -1.02;
-      leg.knee.rotation.x = i === 0 ? 1.48 : 0.28;
-      leg.hip.rotation.z = i === 0 ? -0.10 : 0.12;
+      // Right knee is tucked close; the opposite leg extends forward and out.
+      leg.hip.rotation.x = i === 0 ? 0.74 : -1.08;
+      leg.knee.rotation.x = i === 0 ? 1.58 : 0.30;
+      leg.hip.rotation.z = i === 0 ? -0.12 : 0.14;
+      leg.ankle.rotation.x = i === 0 ? -0.18 : 0.30;
     }
-    leg.hip.rotation.z += hitFactor * (i === 0 ? 0.34 : -0.28);
   }
+
   actor.recoil = Math.max(0, (actor.recoil || 0) - delta * 2.8);
   c.flash.visible = actor.group.userData.flashTimer > 0;
   actor.group.userData.flashTimer = Math.max(0, actor.group.userData.flashTimer - delta);
