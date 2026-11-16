@@ -1,0 +1,7 @@
+Tint3d operator assets
+
+Characters, hairstyles: Universal Base Characters [Standard] by Quaternius, CC0 1.0 (https://quaternius.com/packs/universalbasecharacters.html)
+Animations: Universal Animation Library [Standard] by Quaternius, CC0 1.0 (https://quaternius.com/packs/universalanimationlibrary.html)
+
+Files here were optimised for the web: textures downscaled (1024/512), unused vertex attributes removed, animation set trimmed to the clips Tint3d uses, scale/translation tracks dropped (except pelvis).
+Original licence texts are included next to this file.

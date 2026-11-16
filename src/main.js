@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import './style.css';
+import { createOperatorGroup } from './operators/index.js';
 
 const BLUE = 1;
 const ORANGE = 2;
@@ -2075,303 +2076,11 @@ function updateParticles(delta) {
 }
 
 
-function makeCharacter(team, variation = 0) {
-  // Original athletic arena-operator design. Every visible body surface is
-  // skinned to a named humanoid bone, rather than being a collection of
-  // independently animated toy parts.
-  const group = new THREE.Group();
-  const palette = TEAM[team];
-  const teamBase = toonMat('operator-primary-' + team, team === BLUE ? 0x087e9a : 0xb83c31);
-  const teamDark = toonMat('operator-dark-' + team, team === BLUE ? 0x123342 : 0x422932);
-  const teamLight = toonMat('operator-highlight-' + team, team === BLUE ? 0x39e7f0 : 0xff8767);
-  const cloth = toonMat('operator-cloth-' + team, team === BLUE ? 0x263e50 : 0x49333c);
-  const pants = toonMat('operator-pants-' + team, team === BLUE ? 0x263745 : 0x3d3039);
-  const boot = toonMat('operator-boots', 0x17232e);
-  const sole = toonMat('operator-sole', 0x090f17);
-  const metal = toonMat('operator-metal', 0x758994);
-  const skinColors = [0xb87555, 0xd79a73, 0x86513f, 0xe0ad87, 0x9c624b];
-  const hairColors = [0x17242e, 0x41251f, 0x8a542d, 0x252b43, 0x572d47];
-  const skin = toonMat('operator-skin-' + variation, skinColors[variation % skinColors.length]);
-  const hair = toonMat('operator-hair-' + variation, hairColors[variation % hairColors.length]);
-  const glove = toonMat('operator-glove-' + team, team === BLUE ? 0x183d4b : 0x4b2d32);
-  const eyeWhite = toonMat('operator-eye-white', 0xfff7e9);
-  const eyeDark = toonMat('operator-eye-dark', 0x18232d);
-  const accent = toonMat('operator-accent-' + variation,
-    [0xffd36e, 0xa6f4df, 0xffa7c4, 0xc4b7ff, 0xffd3a1][variation % 5]);
-  const highlight = new THREE.MeshBasicMaterial({ color: 0xffffff });
-
-  const bones = [];
-  const boneIndex = new Map();
-  const makeBone = (name, parent, position) => {
-    const item = new THREE.Bone();
-    item.name = name;
-    item.position.set(position[0], position[1], position[2]);
-    parent.add(item);
-    boneIndex.set(item, bones.length);
-    bones.push(item);
-    return item;
-  };
-
-  // Root and upper-body chain.
-  const rigRoot = makeBone('root', group, [0, 0, 0]);
-  const torsoPivot = makeBone('hips', rigRoot, [0, 0.80, 0]);
-  const spine = makeBone('spine', torsoPivot, [0, 0.12, 0]);
-  const chest = makeBone('chest', spine, [0, 0.40, 0]);
-  const neck = makeBone('neck', chest, [0, 0.38, 0]);
-  const head = makeBone('head', neck, [0, 0.14, 0]);
-  const backMount = makeBone('back_weapon_mount', chest, [0, 0.03, 0.30]);
-
-  const makeArm = (side, label) => {
-    const shoulder = makeBone(label + '_shoulder', chest, [side * 0.335, 0.105, 0]);
-    const elbow = makeBone(label + '_elbow', shoulder, [0, -0.345, 0]);
-    const wrist = makeBone(label + '_wrist', elbow, [0, -0.315, -0.012]);
-    const hand = makeBone(label + '_hand', wrist, [0, -0.045, -0.012]);
-    return { shoulder, elbow, wrist, hand };
-  };
-  const leftArm = makeArm(-1, 'left_arm');
-  const rightArm = makeArm(1, 'right_arm');
-
-  // Independent hip, knee and ankle joints give the legs a real three-part
-  // stride and let the slide pose fold around a planted knee.
-  const legs = [];
-  for (const side of [-1, 1]) {
-    const label = side < 0 ? 'left_leg' : 'right_leg';
-    const hip = makeBone(label + '_hip', rigRoot, [side * 0.165, 0.76, 0.012]);
-    const knee = makeBone(label + '_knee', hip, [0, -0.37, 0]);
-    const ankle = makeBone(label + '_ankle', knee, [0, -0.335, -0.018]);
-    legs.push({ hip, knee, ankle, side });
-  }
-
-  // Five individually animated digits on each hand. These are real rig bones,
-  // not flat decals or a single mitten mesh.
-  const fingerBones = [];
-  const buildFingers = (hand, side, label) => {
-    const xOffsets = [-0.050, -0.024, 0.002, 0.028];
-    for (let i = 0; i < 5; i++) {
-      const thumb = i === 4;
-      const x = thumb ? side * 0.073 : xOffsets[i];
-      const finger = makeBone(label + '_finger_' + (i + 1), hand,
-        [x, thumb ? -0.012 : -0.032, thumb ? -0.018 : -0.048]);
-      if (thumb) finger.rotation.z = side * -0.78;
-      else finger.rotation.z = (i - 1.5) * 0.035;
-      fingerBones.push({ bone: finger, thumb, side, index: i });
-    }
-  };
-  buildFingers(leftArm.hand, -1, 'left_hand');
-  buildFingers(rightArm.hand, 1, 'right_hand');
-
-  group.updateMatrixWorld(true);
-
-  // Build compact geometry batches by material. Each vertex is weighted to
-  // its owning bone; Three.js then performs actual GPU skeletal skinning.
-  const partBuckets = new Map();
-  const addPart = (geometry, material, ownerBone, position, rotation, scale) => {
-    const p = new THREE.Vector3(position[0], position[1], position[2]);
-    const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(rotation[0], rotation[1], rotation[2]));
-    const s = new THREE.Vector3(scale[0], scale[1], scale[2]);
-    const local = new THREE.Matrix4().compose(p, q, s);
-    const transform = new THREE.Matrix4().multiplyMatrices(ownerBone.matrixWorld, local);
-    geometry.applyMatrix4(transform);
-
-    const count = geometry.getAttribute('position').count;
-    const indices = new Uint16Array(count * 4);
-    const weights = new Float32Array(count * 4);
-    const index = boneIndex.get(ownerBone);
-    for (let i = 0; i < count; i++) {
-      indices[i * 4] = index;
-      weights[i * 4] = 1;
-    }
-    geometry.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(indices, 4));
-    geometry.setAttribute('skinWeight', new THREE.Float32BufferAttribute(weights, 4));
-    if (!partBuckets.has(material)) partBuckets.set(material, []);
-    partBuckets.get(material).push(geometry);
-  };
-  const capsule = (material, owner, radius, length, position, scale = [1, 1, 1], rotation = [0, 0, 0]) =>
-    addPart(new THREE.CapsuleGeometry(radius, length, 4, 10), material, owner, position, rotation, scale);
-  const sphere = (material, owner, position, scale, rotation = [0, 0, 0]) =>
-    addPart(new THREE.SphereGeometry(1, 14, 10), material, owner, position, rotation, scale);
-  const box = (material, owner, position, scale, rotation = [0, 0, 0]) =>
-    addPart(new THREE.BoxGeometry(1, 1, 1), material, owner, position, rotation, scale);
-  const cylinder = (material, owner, position, scale, rotation = [0, 0, 0]) =>
-    addPart(new THREE.CylinderGeometry(0.5, 0.5, 1, 10), material, owner, position, rotation, scale);
-
-  // Athletic torso, fitted tactical vest, shoulder line and waist.
-  capsule(cloth, spine, 0.255, 0.42, [0, 0.10, 0.012], [1.02, 1.02, 0.78]);
-  capsule(teamBase, chest, 0.274, 0.30, [0, 0.01, -0.018], [1.08, 1.0, 0.76]);
-  capsule(teamDark, torsoPivot, 0.225, 0.13, [0, -0.045, 0], [1.08, 1.0, 0.82]);
-  box(teamDark, torsoPivot, [0, -0.105, -0.185], [0.53, 0.075, 0.055]);
-  box(metal, torsoPivot, [0, -0.105, -0.218], [0.115, 0.092, 0.024]);
-  box(accent, torsoPivot, [0, -0.105, -0.235], [0.042, 0.046, 0.012]);
-
-  // Layered chest plates and harness straps give the silhouette a readable
-  // competitive-shooter loadout without making the operator bulky.
-  box(teamDark, chest, [0, 0.015, -0.226], [0.34, 0.30, 0.055]);
-  box(teamLight, chest, [0, 0.13, -0.260], [0.19, 0.045, 0.018]);
-  box(teamLight, chest, [0, -0.13, -0.258], [0.18, 0.028, 0.018]);
-  for (const side of [-1, 1]) {
-    box(teamDark, chest, [side * 0.157, 0.00, -0.246], [0.052, 0.38, 0.045],
-      [0, 0, side * -0.10]);
-    box(metal, chest, [side * 0.158, 0.12, -0.274], [0.046, 0.065, 0.018]);
-    box(teamBase, chest, [side * 0.245, -0.015, -0.090], [0.055, 0.22, 0.13]);
-  }
-  box(accent, chest, [0, 0.015, -0.267], [0.105, 0.105, 0.022]);
-  box(teamDark, chest, [0, 0.015, -0.281], [0.065, 0.065, 0.012]);
-
-  // Paint-reservoir pack and hose sit behind the torso and remain part of the
-  // character rig, so the equipment follows jumps, turns and slides.
-  cylinder(teamDark, chest, [0, 0.015, 0.255], [0.255, 0.51, 0.255]);
-  cylinder(metal, chest, [0, 0.03, 0.405], [0.17, 0.12, 0.17]);
-  box(teamLight, chest, [0, -0.01, 0.391], [0.12, 0.20, 0.025]);
-  box(accent, chest, [0, 0.18, 0.394], [0.17, 0.035, 0.025]);
-  capsule(teamLight, chest, 0.021, 0.30, [0.16, -0.11, 0.245], [1, 1, 1], [0, 0, -0.32]);
-
-  // Neck, natural-sized head and compact facial features. No animal ears,
-  // oversized cartoon eyes or oversized bobble-head proportions.
-  capsule(skin, neck, 0.092, 0.10, [0, 0.00, 0], [1, 1, 0.92]);
-  sphere(skin, head, [0, 0.005, 0], [0.205, 0.235, 0.194]);
-  sphere(hair, head, [0, 0.125, 0.010], [0.213, 0.145, 0.202]);
-  sphere(hair, head, [0, 0.045, -0.173], [0.178, 0.078, 0.045]);
-  for (const side of [-1, 1]) {
-    sphere(skin, head, [side * 0.202, -0.005, 0.005], [0.034, 0.052, 0.039]);
-    sphere(eyeWhite, head, [side * 0.076, 0.020, -0.177], [0.027, 0.034, 0.012]);
-    sphere(eyeDark, head, [side * 0.074, 0.018, -0.188], [0.014, 0.022, 0.008]);
-    capsule(hair, head, 0.018, 0.055, [side * 0.076, 0.067, -0.183],
-      [1, 0.65, 0.65], [0, 0, side * -0.08]);
-    sphere(accent, head, [side * 0.205, 0.02, 0.005], [0.025, 0.025, 0.025]);
-  }
-  sphere(skin, head, [0, -0.025, -0.197], [0.027, 0.035, 0.027]);
-  box(eyeDark, head, [0, -0.105, -0.181], [0.066, 0.012, 0.009]);
-  // Individual hair locks vary the squad silhouettes while keeping one shared rig.
-  const hairStyles = variation % 5;
-  if (hairStyles === 0 || hairStyles === 2) {
-    capsule(hair, head, 0.050, 0.15, [-0.115, 0.115, 0.055], [1.0, 0.82, 0.9], [0, 0, -0.72]);
-    capsule(hair, head, 0.045, 0.13, [0.105, 0.13, 0.045], [1.0, 0.82, 0.9], [0, 0, 0.60]);
-  } else if (hairStyles === 1) {
-    capsule(hair, head, 0.045, 0.18, [0.015, 0.205, 0.055], [1.0, 0.85, 0.9], [0, 0, -0.12]);
-    capsule(hair, head, 0.036, 0.12, [0.13, 0.13, 0.02], [1.0, 0.8, 0.9], [0, 0, 0.85]);
-  } else if (hairStyles === 3) {
-    // A close-fitting helmet variant with a short visor.
-    sphere(teamDark, head, [0, 0.15, 0.005], [0.228, 0.15, 0.215]);
-    box(teamLight, head, [0, 0.065, -0.196], [0.31, 0.035, 0.028]);
-    box(metal, head, [0, -0.005, -0.198], [0.23, 0.035, 0.022]);
-  } else {
-    capsule(hair, head, 0.052, 0.14, [-0.11, 0.12, 0.05], [1.0, 0.82, 0.9], [0, 0, -0.78]);
-    capsule(hair, head, 0.045, 0.16, [0.12, 0.11, 0.045], [1.0, 0.82, 0.9], [0, 0, 0.78]);
-  }
-
-  // Articulated shoulders, sleeves, forearm guards, gloves and finger bones.
-  const buildArmSurfaces = (arm, side) => {
-    sphere(teamBase, arm.shoulder, [0, 0.005, 0], [0.158, 0.142, 0.155]);
-    sphere(teamLight, arm.shoulder, [0, 0.035, -0.132], [0.105, 0.035, 0.024]);
-    capsule(cloth, arm.shoulder, 0.104, 0.27, [0, -0.17, 0], [1.04, 1, 1]);
-    sphere(teamDark, arm.elbow, [0, 0, -0.01], [0.112, 0.104, 0.11]);
-    capsule(teamBase, arm.elbow, 0.086, 0.25, [0, -0.145, 0], [1.05, 1, 0.96]);
-    box(teamDark, arm.elbow, [0, -0.12, -0.083], [0.15, 0.18, 0.055],
-      [side * -0.08, 0, 0]);
-    box(teamLight, arm.elbow, [0, -0.12, -0.116], [0.09, 0.035, 0.018]);
-    capsule(glove, arm.wrist, 0.076, 0.095, [0, -0.012, 0], [1, 1, 0.95]);
-    sphere(glove, arm.hand, [0, -0.005, -0.035], [0.080, 0.070, 0.105]);
-    sphere(skin, arm.hand, [0, -0.004, -0.092], [0.052, 0.040, 0.026]);
-  };
-  buildArmSurfaces(leftArm, -1);
-  buildArmSurfaces(rightArm, 1);
-  for (const item of fingerBones) {
-    capsule(glove, item.bone, item.thumb ? 0.014 : 0.0125, item.thumb ? 0.055 : 0.052,
-      [0, -0.034, -0.012], [1, 1, 0.82],
-      item.thumb ? [0, 0, item.side * 0.72] : [0, 0, (item.index - 1.5) * 0.025]);
-    sphere(glove, item.bone, [0, -0.074, -0.014], [0.013, 0.014, 0.013]);
-  }
-
-  // Cargo trousers, reinforced knee pads, shin plates and proper boots.
-  for (const leg of legs) {
-    const side = leg.side;
-    capsule(pants, leg.hip, 0.132, 0.31, [0, -0.17, 0.005], [1.02, 1.05, 0.94]);
-    box(teamDark, leg.hip, [side * 0.105, -0.16, -0.082], [0.072, 0.19, 0.08]);
-    box(teamLight, leg.hip, [side * 0.105, -0.115, -0.125], [0.065, 0.025, 0.018]);
-    sphere(teamDark, leg.knee, [0, 0, 0], [0.124, 0.115, 0.12]);
-    box(teamBase, leg.knee, [0, -0.005, -0.102], [0.215, 0.16, 0.075]);
-    box(teamLight, leg.knee, [0, 0.005, -0.145], [0.105, 0.027, 0.014]);
-    capsule(pants, leg.knee, 0.096, 0.265, [0, -0.15, 0], [1.04, 1.02, 0.98]);
-    box(teamDark, leg.knee, [0, -0.17, -0.082], [0.135, 0.22, 0.045]);
-    box(accent, leg.knee, [0, -0.15, -0.108], [0.052, 0.075, 0.015]);
-    box(sole, leg.ankle, [0, -0.087, -0.074], [0.245, 0.055, 0.415]);
-    box(boot, leg.ankle, [0, -0.037, -0.075], [0.225, 0.13, 0.37]);
-    box(teamLight, leg.ankle, [0, 0.015, -0.18], [0.15, 0.035, 0.025]);
-    box(metal, leg.ankle, [0, -0.015, -0.105], [0.12, 0.018, 0.018]);
-  }
-
-  // Merge the skinned surfaces into a small set of material batches.
-  const skeleton = new THREE.Skeleton(bones);
-  skeleton.calculateInverses();
-  // Prefer a bone texture on mobile GPUs so the full finger/limb rig does not
-  // consume the limited vertex-uniform budget.
-  if (renderer.capabilities.maxVertexTextures > 0) skeleton.computeBoneTexture();
-  const skinnedMeshes = [];
-  for (const [material, geometries] of partBuckets) {
-    const merged = mergeGeometries(geometries, false);
-    for (const geometry of geometries) geometry.dispose();
-    if (!merged) continue;
-    merged.computeBoundingSphere();
-    const skinned = new THREE.SkinnedMesh(merged, material);
-    skinned.name = 'operator_skinned_surface';
-    skinned.castShadow = true;
-    skinned.receiveShadow = false;
-    skinned.frustumCulled = false;
-    skinned.layers.enable(1);
-    group.add(skinned);
-    skinnedMeshes.push(skinned);
-  }
-  group.updateMatrixWorld(true);
-  for (const skinned of skinnedMeshes) skinned.bind(skeleton);
-
-  // Compact two-handed pulse sprayer, retained as a separate prop so the
-  // existing Kenney blaster upgrade and muzzle logic continue to work.
-  const weapon = new THREE.Group();
-  weapon.position.set(0.02, -0.05, -0.05);
-  group.add(weapon);
-  const proceduralWeapon = new THREE.Group();
-  const weaponVisual = new THREE.Group();
-  weapon.add(proceduralWeapon, weaponVisual);
-  const barrel = mesh(new THREE.CylinderGeometry(0.105, 0.145, 0.70, 12),
-    teamDark, proceduralWeapon, 0, 0, -0.40);
-  barrel.rotation.x = Math.PI / 2;
-  const sleeve = mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.18, 12),
-    teamBase, proceduralWeapon, 0, 0, -0.55);
-  sleeve.rotation.x = Math.PI / 2;
-  const nozzle = mesh(new THREE.CylinderGeometry(0.19, 0.14, 0.12, 14),
-    teamLight, proceduralWeapon, 0, 0, -0.79);
-  nozzle.rotation.x = Math.PI / 2;
-  const muzzleRing = mesh(new THREE.TorusGeometry(0.135, 0.027, 6, 16),
-    accent, proceduralWeapon, 0, 0, -0.86);
-  muzzleRing.rotation.x = Math.PI / 2;
-  mesh(shared.sphere, teamBase, proceduralWeapon, 0.16, 0.10, 0.04).scale.set(0.18, 0.16, 0.21);
-  mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.25, 10),
-    teamDark, proceduralWeapon, 0.16, -0.05, 0.03);
-  const flash = mesh(shared.sphere, new THREE.MeshBasicMaterial({
-    color: palette.ink, transparent: true, opacity: 0.95, depthWrite: false
-  }), weapon, 0, 0, -0.94);
-  flash.scale.setScalar(0.13);
-  flash.visible = false;
-
-  group.userData.character = {
-    rigRoot, skeleton, skinnedMeshes,
-    torsoPivot, spine, chest, neck, head,
-    leftArm, rightArm, legs, fingerBones,
-    weapon, backMount, flash, proceduralWeapon, weaponVisual,
-    gripHands: [],
-    defaultLeftArm: 0.58, defaultRightArm: 0.30,
-    weaponHolstered: false, weaponBlend: 1, weaponTransition: null
-  };
-  group.userData.weapon = weapon;
-  group.userData.flash = flash;
-  group.userData.flashTimer = 0;
-  group.userData.shotTimer = 0;
-  group.userData.arms = [leftArm.shoulder, rightArm.shoulder];
-  group.userData.legs = legs.map((leg) => leg.hip);
-  group.traverse((node) => { if (node.isMesh) node.layers.enable(1); });
-  return group;
+// Skeletal operators (Quaternius CC0 rig + animation library). The group exposes
+// the same weapon / flash / userData contract the rest of the game relies on.
+function makeCharacter(team, variation = 0, isPlayer = false) {
+  return createOperatorGroup({ team, variation, isPlayer, palette: TEAM[team] });
 }
-
 
 function setWeaponHolstered(actor, holstered, instant = false) {
   const c = actor.group.userData.character;
@@ -2392,60 +2101,18 @@ function setWeaponHolstered(actor, holstered, instant = false) {
     duration: holstered ? 0.26 : 0.22
   };
 }
-function weaponAnchorPose(actor, holstered) {
-  const c = actor.group.userData.character;
-  const parent = holstered ? c.backMount : c.rightArm.elbow;
-  const localPosition = holstered
-    ? new THREE.Vector3(0.02, 0.015, 0.015)
-    : new THREE.Vector3(0.025, -0.28, -0.17);
-  const localEuler = holstered
-    ? new THREE.Euler(0, Math.PI, 0.34)
-    : new THREE.Euler(actor.player ? clamp((0.20 - pitch) * 0.65, -0.12, 0.82) : -0.05, 0, 0);
-  const localQuaternion = new THREE.Quaternion().setFromEuler(localEuler);
-  parent.updateWorldMatrix(true, false);
-  actor.group.updateWorldMatrix(true, false);
-  const worldPosition = localPosition.applyMatrix4(parent.matrixWorld);
-  const worldQuaternion = parent.getWorldQuaternion(new THREE.Quaternion()).multiply(localQuaternion);
-  const rootQuaternion = actor.group.getWorldQuaternion(new THREE.Quaternion()).invert();
-  return {
-    position: actor.group.worldToLocal(worldPosition),
-    quaternion: rootQuaternion.multiply(worldQuaternion)
-  };
-}
-
 function resetCharacterPose(actor) {
   const c = actor.group.userData.character;
   if (!c) return;
   setWeaponHolstered(actor, false, true);
-  c.torsoPivot.position.set(0, 0.80, 0);
-  c.torsoPivot.rotation.set(0, 0, 0);
-  c.torsoPivot.scale.set(1, 1, 1);
-  c.spine.rotation.set(0, 0, 0);
-  c.chest.rotation.set(0, 0, 0);
-  c.neck.rotation.set(0, 0, 0);
-  c.head.rotation.set(0, 0, 0);
-  c.leftArm.shoulder.rotation.set(c.defaultLeftArm, 0, 0);
-  c.leftArm.elbow.rotation.set(-0.08, 0, 0);
-  c.leftArm.wrist.rotation.set(0, 0, 0);
-  c.rightArm.shoulder.rotation.set(c.defaultRightArm, 0, 0);
-  c.rightArm.elbow.rotation.set(-0.12, 0, 0);
-  c.rightArm.wrist.rotation.set(0, 0, 0);
-  for (const finger of c.fingerBones) {
-    finger.bone.rotation.x = 0;
-    if (finger.thumb) finger.bone.rotation.z = finger.side * -0.78;
-  }
-  for (const leg of c.legs) {
-    leg.hip.rotation.set(0, 0, 0);
-    leg.knee.rotation.set(0, 0, 0);
-    leg.ankle.rotation.set(0, 0, 0);
-  }
+  c.animator?.reset();
   actor.ragdollState = null;
   actor.hitTimer = 0;
   actor.landImpact = 0;
 }
 
 function createActor(team, variation, x, z, playerControlled = false) {
-  const group = makeCharacter(team, variation);
+  const group = makeCharacter(team, variation, playerControlled);
   const actor = {
     team, variation, group, position: new THREE.Vector3(x, groundHeight(x, z), z),
     player: playerControlled, health: 100, maxHealth: 100,
@@ -2456,7 +2123,7 @@ function createActor(team, variation, x, z, playerControlled = false) {
     velocity: new THREE.Vector3(), recoil: 0, hitTimer: 0, landImpact: 0, ragdollState: null,
     sprinting: false, sliding: false, slideTimer: 0, slideCooldown: 0,
     slideSpeed: 0, slideDirection: new THREE.Vector3(),
-    jumpBuffer: 0, coyoteTimer: 0.12, jumpHoldTimer: 0, effectTimer: 0
+    jumpBuffer: 0, coyoteTimer: 0.12, jumpHoldTimer: 0, effectTimer: 0, aimElevation: 0
   };
   if (playerControlled) group.traverse((child) => {
     if (!child.isMesh) return;
@@ -2516,7 +2183,18 @@ function equipBlasterModel(actor) {
     const centre = bounds.getCenter(new THREE.Vector3());
     const muzzleWorld = new THREE.Vector3(centre.x, centre.y, bounds.min.z - 0.018);
     c.weapon.userData.muzzleLocal = c.weapon.worldToLocal(muzzleWorld);
+    // Weapon-local bounds: drives the grip sockets and a pose-independent muzzle.
+    const inverseWeapon = c.weapon.matrixWorld.clone().invert();
+    const fit = new THREE.Box3();
+    model.traverse((node) => {
+      if (!node.isMesh) return;
+      node.geometry.computeBoundingBox();
+      fit.union(node.geometry.boundingBox.clone().applyMatrix4(inverseWeapon.clone().multiply(node.matrixWorld)));
+    });
+    c.weapon.userData.muzzleLocal = new THREE.Vector3((fit.min.x + fit.max.x) / 2, (fit.min.y + fit.max.y) / 2, fit.min.z - 0.018);
     c.flash.position.copy(c.weapon.userData.muzzleLocal);
+    c.weaponFitBox = fit;
+    c.animator?.setWeaponFit(fit);
   }).catch((error) => console.warn('Tint3d is using its fallback blaster:', error));
 }
 actors.forEach((actor) => {
@@ -3105,6 +2783,7 @@ function updatePlayer(delta) {
   player.invulnerable = Math.max(0, player.invulnerable - delta);
   player.walkPhase += delta * (player.sliding ? 18 : (player.sprinting ? 16 : (moving ? 11.5 : 2)));
   const gaitSpeed = clamp(Math.hypot(player.velocity.x, player.velocity.z) / 13.8, 0, 1.18);
+  player.aimElevation = 0.20 - pitch;
   animateActor(player, player.sliding ? 1.25 : gaitSpeed, delta);
   player.effectTimer -= delta;
   if (moving && player.grounded && player.effectTimer <= 0) {
@@ -3140,114 +2819,21 @@ function animateActor(actor, moving, delta = 0.016) {
     }
   }
 
-  const weaponDraw = c.weaponTransition ? Math.sin(c.weaponBlend * Math.PI) : 0;
-  const t = actor.walkPhase || 0;
-  const speed = clamp(moving, 0, 1.15);
-  const running = speed > 0.05;
-  const sprinting = !!actor.sprinting || actor.flow > 0;
-  const sliding = !!actor.sliding;
-  const stride = running ? Math.sin(t) * (sprinting ? 1.12 : 0.82) * speed : 0;
-  const idle = running ? 0 : Math.sin(t * 1.45);
-  const bounce = running
-    ? Math.abs(Math.sin(t * 2)) * (sprinting ? 0.10 : 0.058)
-    : Math.sin(t * 0.9) * 0.009 + idle * 0.012;
   const shot = actor.group.userData.shotTimer || 0;
   actor.group.userData.shotTimer = Math.max(0, shot - delta);
-  const shooting = clamp(shot / 0.30, 0, 1);
   const hit = Math.max(0, actor.hitTimer || 0);
   actor.hitTimer = Math.max(0, hit - delta);
-  const hitFactor = hit > 0 ? hit / 0.22 : 0;
-  const air = actor.player && !actor.grounded ? 1 : 0;
-  const facingRightSpeed =
-    actor.velocity.x * Math.cos(actor.group.rotation.y) +
-    actor.velocity.z * Math.sin(actor.group.rotation.y);
-  const lateralSpeed =
-    actor.velocity.x * Math.cos(actor.group.rotation.y) +
-    actor.velocity.z * Math.sin(actor.group.rotation.y);
-  const gripMotion = shooting + (running ? 0.14 : 0) + (sliding ? 0.08 : 0);
+  if (hit > 0.2) c.animator?.triggerHit();
 
-  // Pelvis and spine absorb the movement first; the chest counter-rotates so
-  // the shoulders and weapon stay readable during fast turns and strafes.
-  c.torsoPivot.position.y = (sliding ? 0.46 : 0.80) + bounce -
-    (actor.landImpact > 0 ? actor.landImpact * 0.075 : 0);
-  c.torsoPivot.position.x = running ? Math.sin(t * 2) * 0.018 * speed : 0;
-  c.torsoPivot.rotation.x = sliding ? -1.00 :
-    (running ? (sprinting ? -0.32 : -0.12) : Math.sin(t * 0.55) * 0.022);
-  c.torsoPivot.rotation.z = clamp(-lateralSpeed * (sliding ? 0.025 : 0.017), -0.25, 0.25) +
-    hitFactor * 0.16;
-  c.torsoPivot.scale.y = 1 - Math.max(0, actor.landImpact || 0) * 0.12;
-  c.torsoPivot.scale.x = 1 + Math.max(0, actor.landImpact || 0) * 0.055;
-  c.spine.rotation.x = (sprinting ? -0.075 : -0.02) + air * 0.06 + shooting * 0.025;
-  c.spine.rotation.z = Math.sin(t * 2) * (running ? 0.025 * speed : 0.006);
-  c.chest.rotation.x = (actor.player ? -pitch * 0.22 : 0) + shooting * 0.045 -
-    (sliding ? 0.10 : 0);
-  c.chest.rotation.y = clamp(-actor.velocity.x * 0.012, -0.18, 0.18) +
-    (actor.player ? clamp(-pitch * 0.05, -0.06, 0.06) : 0);
-  c.chest.rotation.z = -c.torsoPivot.rotation.z * 0.42 + hitFactor * 0.06;
-  c.neck.rotation.x = (actor.player ? -pitch * 0.12 : 0) + air * 0.06 + shooting * 0.025;
-  c.neck.rotation.y = running ? -stride * 0.035 : Math.sin(t * 0.72) * 0.035;
-  c.head.rotation.x = Math.sin(t * 1.7) * 0.018 + air * 0.09 + shooting * 0.045;
-  c.head.rotation.y = running ? -stride * 0.045 : Math.sin(t * 0.72) * 0.055;
-  c.head.rotation.z = Math.sin(t * 0.55) * 0.018 - hitFactor * 0.16;
-
-  // Weapon-side arm remains braced; the support arm naturally reaches across
-  // the receiver. Sprinting loosens the pose and holsters the weapon.
-  c.leftArm.shoulder.rotation.x = c.defaultLeftArm - stride * 0.31 -
-    air * 0.78 + shooting * 0.10 + (sliding ? -1.00 : 0);
-  c.rightArm.shoulder.rotation.x = c.defaultRightArm + stride * 0.20 -
-    air * 0.50 - shooting * 0.30 + (sliding ? -0.78 : 0) - weaponDraw * 0.68;
-  c.leftArm.shoulder.rotation.z = -0.045 + Math.sin(t * 0.9) * 0.025 +
-    hitFactor * 0.38;
-  c.rightArm.shoulder.rotation.z = 0.03 - hitFactor * 0.52 + weaponDraw * 0.22;
-  c.leftArm.elbow.rotation.x = -0.32 - Math.max(0, stride) * 0.20 -
-    air * 0.46 - shooting * 0.13;
-  c.rightArm.elbow.rotation.x = -0.18 - shooting * 0.26 -
-    Math.max(0, -stride) * 0.16 - weaponDraw * 0.72;
-  c.leftArm.elbow.rotation.z = -0.055;
-  c.rightArm.elbow.rotation.z = 0.035 - weaponDraw * 0.14;
-  c.leftArm.wrist.rotation.x = -0.08 - gripMotion * 0.08;
-  c.rightArm.wrist.rotation.x = -0.04 - shooting * 0.08;
-
-  // Fingers curl around the grip and tighten briefly on each paint burst.
-  for (const item of c.fingerBones) {
-    const curl = 0.16 + gripMotion * 0.23 + Math.sin(t * 1.35 + item.index) * 0.018;
-    item.bone.rotation.x = item.thumb ? 0.30 + gripMotion * 0.12 : curl;
-  }
-
-  const backPose = weaponAnchorPose(actor, true);
-  const handPose = weaponAnchorPose(actor, false);
-  c.weapon.position.copy(backPose.position).lerp(handPose.position, c.weaponBlend);
-  c.weapon.quaternion.copy(backPose.quaternion).slerp(handPose.quaternion, c.weaponBlend);
-  c.weapon.position.z += (actor.recoil || 0) * 0.55 * c.weaponBlend;
-
-  // Alternating thigh drive, knee recovery and ankle/toe follow-through.
-  for (let i = 0; i < c.legs.length; i++) {
-    const leg = c.legs[i];
-    const phase = t + (i === 0 ? 0 : Math.PI);
-    const swing = Math.sin(phase);
-    leg.hip.rotation.x = running ? swing * (sprinting ? 1.00 : 0.73) * speed :
-      Math.sin(t * 0.8 + i) * 0.014;
-    leg.hip.rotation.z = (i === 0 ? 0.018 : -0.018) +
-      hitFactor * (i === 0 ? 0.30 : -0.26);
-    leg.knee.rotation.x = running
-      ? Math.max(0, Math.sin(phase + 0.48)) * (sprinting ? 1.10 : 0.78) * speed
-      : 0.018;
-    leg.ankle.rotation.x = running
-      ? -Math.max(0, -Math.sin(phase + 0.35)) * 0.30 * speed
-      : 0;
-
-    if (air) {
-      leg.hip.rotation.x = i === 0 ? 0.48 : -0.66;
-      leg.knee.rotation.x = i === 0 ? 0.78 : 0.58;
-      leg.ankle.rotation.x = i === 0 ? -0.24 : 0.12;
-    }
-    if (sliding) {
-      // Right knee is tucked close; the opposite leg extends forward and out.
-      leg.hip.rotation.x = i === 0 ? 0.74 : -1.08;
-      leg.knee.rotation.x = i === 0 ? 1.58 : 0.30;
-      leg.hip.rotation.z = i === 0 ? -0.12 : 0.14;
-      leg.ankle.rotation.x = i === 0 ? -0.18 : 0.30;
-    }
+  if (c.animator && actor.group.visible) {
+    // Distant bots skip the weapon-grip IK and finger pass.
+    const detail = actor.player || camera.position.distanceToSquared(actor.group.position) < 1444 ? 1 : 0;
+    c.animator.update(delta, actor, c.weapon, {
+      weaponBlend: c.weaponBlend,
+      shotTimer: shot,
+      shooting: clamp(shot / 0.30, 0, 1),
+      isPlayer: actor.player
+    }, detail);
   }
 
   actor.recoil = Math.max(0, (actor.recoil || 0) - delta * 2.8);
@@ -3259,45 +2845,22 @@ function animateActor(actor, moving, delta = 0.016) {
   updateActorShadow(actor);
 }
 
+// Eliminations play the skeletal death clip; the actor is hidden when it ends.
 function updateRagdolls(delta) {
   for (const actor of actors) {
     const state = actor.ragdollState;
     if (!state) continue;
-    state.time += delta;
     const c = actor.group.userData.character;
     if (!c) continue;
-    const damp = Math.exp(-2.7 * delta);
-    state.pitchVelocity += 1.9 * delta;
-    state.rollVelocity += -state.roll * 2.4 * delta;
-    state.pitch = clamp(state.pitch + state.pitchVelocity * delta, -1.38, 0.35);
-    state.roll += state.rollVelocity * delta;
-    state.pitchVelocity *= damp;
-    state.rollVelocity *= Math.exp(-2.1 * delta);
-    c.torsoPivot.rotation.x = state.pitch;
-    c.torsoPivot.rotation.z = state.roll;
-    c.torsoPivot.position.y = 0.80 - Math.min(0.32, state.time * 0.42);
-    c.head.rotation.x = 0.28 + Math.sin(state.time * 10) * 0.15 * Math.exp(-2 * state.time);
-    c.leftArm.shoulder.rotation.x += state.leftArmVelocity * delta;
-    c.rightArm.shoulder.rotation.x += state.rightArmVelocity * delta;
-    c.leftArm.shoulder.rotation.z = -0.9 * state.roll;
-    c.rightArm.shoulder.rotation.z = 0.9 * state.roll;
-    c.leftArm.elbow.rotation.x += state.leftElbowVelocity * delta;
-    c.rightArm.elbow.rotation.x += state.rightElbowVelocity * delta;
-    for (let i = 0; i < 2; i++) {
-      const leg = c.legs[i];
-      const sign = i === 0 ? -1 : 1;
-      leg.hip.rotation.x += state.legVelocity[i] * delta;
-      leg.hip.rotation.z = sign * state.roll * 0.28;
-      leg.knee.rotation.x = 0.35 + Math.sin(state.time * 7 + i) * 0.22 * Math.exp(-2 * state.time);
-      state.legVelocity[i] *= damp;
+    if (!state.started) {
+      state.started = true;
+      c.animator?.playDeath();
     }
-    state.leftArmVelocity *= damp;
-    state.rightArmVelocity *= damp;
-    state.leftElbowVelocity *= damp;
-    state.rightElbowVelocity *= damp;
+    state.time += delta;
+    c.animator?.updateDeath(delta, c.weaponBlend, c.weapon);
     actor.group.position.y = actor.position.y;
     updateActorShadow(actor);
-    if (state.time >= 0.86) {
+    if (state.time >= 1.7) {
       actor.ragdollState = null;
       actor.group.visible = false;
       if (actor.shadow) actor.shadow.visible = false;
