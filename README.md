@@ -64,3 +64,13 @@ All characters, maps, weapons, names and visual identity are original. Tint3d is
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+
+## Characters and animation (characters-v2)
+
+Operators are skinned humanoids from the CC0 Quaternius packs (see `public/assets/operators/CREDITS.txt` and the licence files beside it):
+
+- `src/operators/assets.js` loads the shared bodies, hairstyles and animation clips once.
+- `src/operators/operator.js` builds a character (body, skin, hair, beard, ink tank) and holds the appearance table (`APPEARANCES`). New hairstyles/skins are table entries; rigid equipment can be added with `operator.addEquipment(bone, object, position)`.
+- `src/operators/animator.js` is the animation state machine: upper/lower body layers, phase-locked idle/walk/jog/sprint, jump/land, knee slide, strafing twist, aim pitch, recoil/hit overlays, death, and a two-handed weapon grip (IK + finger curl).
+- `src/operators/ik.js` contains the axis-agnostic two-bone IK used for arms and legs.

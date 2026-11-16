@@ -136,7 +136,7 @@ export class Operator {
     const backHolder = new THREE.Object3D();
     attachRigid(
       group, this.bones.get('spine_03'), backHolder, new THREE.Vector3(-0.10, 1.08, 0.38),
-      new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI / 2, 0, 0.45, 'ZXY'))
+      new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI / 2 + 0.55, 0, 0.45, 'ZXY'))
     );
     const handHolder = new THREE.Object3D();
     this.bones.get('hand_r').add(handHolder);

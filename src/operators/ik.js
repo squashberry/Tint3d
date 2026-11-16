@@ -7,6 +7,7 @@ const _qa = new THREE.Quaternion();
 const _qb = new THREE.Quaternion();
 const _qc = new THREE.Quaternion();
 const _qId = new THREE.Quaternion();
+const _qd = new THREE.Quaternion();
 const _vA = new THREE.Vector3();
 const _vB = new THREE.Vector3();
 const _vC = new THREE.Vector3();
@@ -39,7 +40,7 @@ export function setBoneWorldPosition(bone, position) {
 
 function rotateBoneTowards(bone, from, to, weight) {
   _qc.setFromUnitVectors(from, to);
-  if (weight < 1) _qc.copy(_qId.identity()).slerp(_qc, weight);
+  if (weight < 1) { _qd.copy(_qc); _qc.copy(_qId.identity()).slerp(_qd, weight); }
   bone.getWorldQuaternion(_qa);
   _qc.multiply(_qa);
   setBoneWorldQuaternion(bone, _qc);

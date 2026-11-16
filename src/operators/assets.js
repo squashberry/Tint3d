@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-const ROOT = import.meta.env.BASE_URL + 'assets/operators/';
+const ROOT = ((import.meta.env && import.meta.env.BASE_URL) || '/') + 'assets/operators/';
 const gltfLoader = new GLTFLoader();
 const textureLoader = new THREE.TextureLoader();
 

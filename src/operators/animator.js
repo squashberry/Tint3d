@@ -8,7 +8,7 @@
 // Procedural passes on top of the clips: lower-body twist (strafing), aim pitch,
 // knee-slide pose, two-handed weapon grip (IK + finger curl), landing squash.
 import * as THREE from 'three';
-import { rotateBoneWorld, setBoneWorldPosition, solveTwoBone } from './ik.js';
+import { rotateBoneWorld, setBoneWorldPosition, setBoneWorldQuaternion, solveTwoBone } from './ik.js';
 
 const clamp = THREE.MathUtils.clamp;
 const approach = (current, target, rate, dt) => current + (target - current) * (1 - Math.exp(-rate * dt));
@@ -117,6 +117,14 @@ export class OperatorAnimator {
     this.backHolder = null;
     this.handOffsetQuaternion = new THREE.Quaternion();
     this.palmPoint = new THREE.Vector3(0, 0.07, 0);
+    // Mixer writes only changed values, so procedural edits must be undone by hand each frame.
+    this.boneList = [...bones.values()];
+    this.pureQuaternions = this.boneList.map(() => new THREE.Quaternion());
+    this.purePelvis = new THREE.Vector3();
+    this.hasPure = false;
+    this.armedFresh = false;
+    this.armedPosition = new THREE.Vector3();
+    this.armedQuaternion = new THREE.Quaternion();
     this.gripBones = [];
     for (const name of Object.keys(clips.grip)) {
       if (bones.has(name)) this.gripBones.push({ bone: bones.get(name), pose: clips.grip[name] });
@@ -135,17 +143,17 @@ export class OperatorAnimator {
 
   /** Rotation that turns the hand bone's frame into a level, forward-facing weapon frame. */
   computeAimReference() {
-    const entry = this._entry(this.clips.upper.Pistol_Aim_Neutral);
-    entry.action.time = 0;
-    entry.action.weight = 1;
+    const aim = this.upper.aim;
+    aim.action.time = 0;
+    aim.action.weight = 1;
     this.mixer.update(0);
     this.group.updateMatrixWorld(true);
     this.bones.get('hand_r').getWorldQuaternion(_qt);
     this.group.getWorldQuaternion(_qg);
     const handInGroup = _qg.clone().invert().multiply(_qt);
     this.handOffsetQuaternion.copy(handInGroup).invert();
-    entry.action.stop();
-    this.mixer.uncacheAction(entry.clip, this.modelRoot);
+    aim.action.weight = 0;
+    this.mixer.update(0);
     this.group.updateMatrixWorld(true);
   }
 
@@ -155,7 +163,8 @@ export class OperatorAnimator {
     const height = Math.max(0.05, box.max.y - box.min.y);
     const cx = (box.min.x + box.max.x) / 2;
     this.sockets.right.set(cx, box.min.y + height * 0.24, box.max.z - length * 0.30);
-    this.sockets.left.set(cx, box.min.y + height * 0.42, box.min.z + length * 0.32);
+    const leftZ = Math.max(box.min.z + length * 0.32, this.sockets.right.z - 0.22);
+    this.sockets.left.set(cx, box.min.y + height * 0.42, leftZ);
     if (this.handHolder) {
       this.handHolder.quaternion.copy(this.handOffsetQuaternion);
       _v1.copy(this.sockets.right).applyQuaternion(this.handOffsetQuaternion);
@@ -198,10 +207,23 @@ export class OperatorAnimator {
     this.landTimer = 0;
     this.wasAirborne = false;
     this.hasPrev = false;
+    this.hasPure = false;
     this.velocity.set(0, 0, 0);
   }
 
   triggerHit() { this.hitClock = 0; }
+
+  _savePure() {
+    for (let i = 0; i < this.boneList.length; i++) this.pureQuaternions[i].copy(this.boneList[i].quaternion);
+    this.purePelvis.copy(this.bones.get('pelvis').position);
+    this.hasPure = true;
+  }
+
+  _restorePure() {
+    if (!this.hasPure) return;
+    for (let i = 0; i < this.boneList.length; i++) this.boneList[i].quaternion.copy(this.pureQuaternions[i]);
+    this.bones.get('pelvis').position.copy(this.purePelvis);
+  }
 
   _applyWeights(layer, targets, dt, rate) {
     let sum = 0;
@@ -330,7 +352,9 @@ export class OperatorAnimator {
     this.upper.aim.action.time = 0;
     this.upper.ready.action.time = this.idlePhase * this.upper.ready.clip.duration;
 
+    this._restorePure();
     this.mixer.update(dt);
+    this._savePure();
     this.group.updateMatrixWorld(true);
 
     // --- procedural passes ---------------------------------------------------
@@ -356,7 +380,7 @@ export class OperatorAnimator {
       _qf.premultiply(_qg);
       const toWorld = (target, x, y, z) => target.set(x, y, z).applyQuaternion(_qf).add(_gp);
       pelvis.getWorldPosition(_v1);
-      toWorld(_v2, 0, 0.60, 0.12);
+      toWorld(_v2, 0, 0.52, 0.12);
       setBoneWorldPosition(pelvis, _v1.lerp(_v2, slide));
       rotateBoneWorld(pelvis, _right, 0.30 * slide);
       for (const spine of spines) rotateBoneWorld(spine, _right, 0.09 * slide);
@@ -366,7 +390,7 @@ export class OperatorAnimator {
       );
       solveTwoBone(
         bones.get('thigh_r'), bones.get('calf_r'), bones.get('foot_r'),
-        toWorld(_v3, 0.17, 0.13, 0.28), toWorld(_v4, 0.20, 0.15, -1.00), slide
+        toWorld(_v3, 0.17, 0.12, 0.30), toWorld(_v4, 0.20, 0.00, -1.00), slide
       );
     }
 
@@ -388,18 +412,66 @@ export class OperatorAnimator {
 
     // --- weapon + two-handed grip ---------------------------------------------
     if (weapon) {
+      this.armedFresh = detail > 0 && this.armedBlend > 0.04;
+      if (this.armedFresh) this._poseArmed(actor, weapon);
       this._placeWeapon(weapon, state.weaponBlend, actor.recoil || 0);
       if (detail > 0 && this.armedBlend > 0.04) this._gripWeapon(weapon);
     }
   }
 
+  /**
+   * Armed pose: the weapon is held exactly on the aim direction; the right arm
+   * is solved onto the rear grip and the hand is rotated to match it.
+   */
+  _poseArmed(actor, weapon) {
+    const blend = this.armedBlend;
+    const bones = this.bones;
+    this.group.getWorldQuaternion(_qg);
+    this.group.getWorldPosition(_gp);
+    _right.set(1, 0, 0).applyQuaternion(_qg);
+    // Weapon orientation = character facing pitched by the aim elevation.
+    _qf.setFromAxisAngle(_right, clamp(actor.aimElevation || 0, -0.9, 0.9)).multiply(_qg);
+    this.armedQuaternion.copy(_qf);
+    // Rear-grip target: in front of the right shoulder, following the pitch.
+    const upperArm = bones.get('upperarm_r');
+    const lowerArm = bones.get('lowerarm_r');
+    const hand = bones.get('hand_r');
+    upperArm.getWorldPosition(_v1);
+    _v2.set(-0.08, -0.16, -0.34).applyQuaternion(_qg);
+    _qt.setFromAxisAngle(_right, clamp(actor.aimElevation || 0, -0.9, 0.9));
+    _v2.applyQuaternion(_qt);
+    _v1.add(_v2); // world position the grip socket must reach
+    // Weapon origin so that its right socket sits on that point.
+    _v3.copy(this.sockets.right).applyQuaternion(_qf);
+    this.armedPosition.copy(_v1).sub(_v3);
+    // Hand frame that matches the weapon, and the wrist target behind the palm.
+    _qt.copy(_qf).multiply(_qHand.copy(this.handOffsetQuaternion).invert());
+    _v3.copy(this.palmPoint).applyQuaternion(_qt);
+    _v1.sub(_v3);
+    _v4.set(0.65, 0.85, 0.30).applyQuaternion(_qg).add(_gp);
+    solveTwoBone(upperArm, lowerArm, hand, _v1, _v4, 0.96 * blend);
+    // Rotate the hand onto the grip.
+    hand.getWorldQuaternion(_qHand);
+    _qHand.slerp(_qt, blend);
+    setBoneWorldQuaternion(hand, _qHand);
+    // The weapon pose is in world space; convert to group space for placement.
+    _m1.copy(this.group.matrixWorld).invert();
+    this.armedPosition.applyMatrix4(_m1);
+    this.armedQuaternion.premultiply(_qg.clone().invert());
+  }
+
   _placeWeapon(weapon, blend, recoil) {
     if (!this.handHolder || !this.backHolder) return;
     _m1.copy(this.group.matrixWorld).invert();
-    this.handHolder.updateWorldMatrix(true, false);
-    _m2.multiplyMatrices(_m1, this.handHolder.matrixWorld).decompose(_pHand, _qHand, _s);
     this.backHolder.updateWorldMatrix(true, false);
     _m2.multiplyMatrices(_m1, this.backHolder.matrixWorld).decompose(_pBack, _qBack, _s);
+    if (this.armedBlend > 0.04 && this.armedFresh) {
+      _pHand.copy(this.armedPosition);
+      _qHand.copy(this.armedQuaternion);
+    } else {
+      this.handHolder.updateWorldMatrix(true, false);
+      _m2.multiplyMatrices(_m1, this.handHolder.matrixWorld).decompose(_pHand, _qHand, _s);
+    }
     const b = clamp(blend, 0, 1);
     weapon.position.copy(_pBack).lerp(_pHand, b);
     weapon.quaternion.copy(_qBack).slerp(_qHand, b);
