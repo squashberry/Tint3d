@@ -10,9 +10,11 @@ const TEAM = {
   1: { ink: '#20d8e9', deep: '#087e9a', light: '#a4f7ff', dark: '#063b50' },
   2: { ink: '#ff7652', deep: '#b83c31', light: '#ffd0a9', dark: '#54212c' }
 };
-const ARENA = 52;
+const ARENA = 76;
 const HALF = ARENA / 2;
-const GRID = 64;
+const GRID = 96;
+const EXPAND = HALF - 26; // growth of the yard beyond the original 52 m layout
+const SPAWN_Z = HALF - 6.5;
 const MATCH_SECONDS = 180;
 const clamp = THREE.MathUtils.clamp;
 const root = document.querySelector('#game-stage');
@@ -46,7 +48,7 @@ if (isTouch) {
 const scene = new THREE.Scene();
 const skyHorizon = 0x83b4bc;
 scene.background = new THREE.Color(skyHorizon);
-scene.fog = new THREE.Fog(skyHorizon, 56, 142);
+scene.fog = new THREE.Fog(skyHorizon, 78, 205);
 
 // A lightweight painted sky dome gives Breakwater a layered coastal atmosphere
 // without an HDR download, extra render pass, or per-frame shader workload.
@@ -95,7 +97,7 @@ const skyTexture = new THREE.CanvasTexture(skyCanvas);
 skyTexture.colorSpace = THREE.SRGBColorSpace;
 skyTexture.anisotropy = 4;
 const skyDome = new THREE.Mesh(
-  new THREE.SphereGeometry(150, 48, 24),
+  new THREE.SphereGeometry(235, 48, 24),
   new THREE.MeshBasicMaterial({
     map: skyTexture,
     side: THREE.BackSide,
@@ -109,7 +111,7 @@ skyDome.layers.set(0);
 skyDome.renderOrder = -1000;
 scene.add(skyDome);
 
-const camera = new THREE.PerspectiveCamera(66, innerWidth / innerHeight, 0.1, 180);
+const camera = new THREE.PerspectiveCamera(66, innerWidth / innerHeight, 0.1, 280);
 const renderer = new THREE.WebGLRenderer({
   antialias: true,
   alpha: false,
@@ -143,6 +145,8 @@ sun.shadow.normalBias = 0.035;
 sun.shadow.radius = 2;
 sun.shadow.camera.updateProjectionMatrix();
 scene.add(sun);
+scene.add(sun.target);
+const sunOffset = new THREE.Vector3(-13, 25, 11);
 const fillLight = new THREE.PointLight(0x42e7ef, 29, 42, 2);
 fillLight.position.set(-12, 8, -5);
 scene.add(fillLight);
@@ -540,6 +544,7 @@ function drawArenaBaseArtwork(ctx) {
   ctx.restore();
 }
 drawArenaBaseArtwork(paintCtx);
+  drawExpansionArtwork(paintCtx);
 const paintTexture = new THREE.CanvasTexture(paintCanvas);
 paintTexture.colorSpace = THREE.SRGBColorSpace;
 paintTexture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
@@ -910,8 +915,8 @@ function addCraneHoist(x, z, accent, cargoColor, swing = 1) {
     block(x + swing * 0.38 + side * 1.05, 3.72, z, 0.08, 1.90, 0.08, 0x9ba7a0);
   }
 }
-addCraneHoist(-15.8, -27.0, 0x20d8e9, 0x285a66, 1);
-addCraneHoist(15.8, -27.0, 0xff7652, 0x77513d, -1);
+addCraneHoist(-15.8, -27.0 - EXPAND, 0x20d8e9, 0x285a66, 1);
+addCraneHoist(15.8, -27.0 - EXPAND, 0xff7652, 0x77513d, -1);
 // Industrial skyline is now assembled from real, textured Kenney building meshes.
 for (const x of [-24, 24]) {
   cylinder(x, 5.1, -23, 0.23, 10.2, 0x37555e);
@@ -1287,19 +1292,19 @@ const waterTexture = new THREE.CanvasTexture(waterCanvas);
 waterTexture.colorSpace = THREE.SRGBColorSpace;
 waterTexture.wrapS = THREE.RepeatWrapping;
 waterTexture.wrapT = THREE.RepeatWrapping;
-waterTexture.repeat.set(3, 2);
+waterTexture.repeat.set(16, 16);
 const harbourWater = mesh(
-  new THREE.PlaneGeometry(72, 28),
+  new THREE.PlaneGeometry(460, 460),
   new THREE.MeshStandardMaterial({ map: waterTexture, roughness: 0.34, metalness: 0.30 }),
-  scene, 0, -0.86, -39
+  scene, 0, -0.86, 0
 );
 harbourWater.rotation.x = -Math.PI / 2;
 harbourWater.layers.enable(1);
-for (let i = 0; i < 7; i++) {
-  const x = -27 + i * 9;
-  cylinder(x, 0.18, -22.8, 0.34, 0.36, i % 2 ? 0x526b68 : 0x344e57);
-  block(x, 0.98, -22.8, 0.12, 1.70, 0.12, 0x334d54);
-  block(x, 1.82, -22.8, 0.56, 0.10, 0.56, 0xffbd72);
+for (let i = 0; i < 9; i++) {
+  const x = -36 + i * 9;
+  cylinder(x, 0.18, -HALF + 3.2, 0.34, 0.36, i % 2 ? 0x526b68 : 0x344e57);
+  block(x, 0.98, -HALF + 3.2, 0.12, 1.70, 0.12, 0x334d54);
+  block(x, 1.82, -HALF + 3.2, 0.56, 0.10, 0.56, 0xffbd72);
 }
 
 // ---------------------------------------------------------------------------
@@ -1400,21 +1405,282 @@ addKenneyModel('factory', 'conveyor-bars-stripe.glb', -10.9, 0, 10.4, 4.2, Math.
 addKenneyModel('factory', 'pipe-large-long.glb', 10.8, 0, -10.0, 3.2, Math.PI / 2);
 
 // Authored gantry cranes and hanging lift assemblies on the far quay.
-addKenneyModel('factory', 'crane.glb', -15.4, 0, -27.0, 3.8, 0);
-addKenneyModel('factory', 'crane.glb', 15.4, 0, -27.0, 3.8, Math.PI);
-addKenneyModel('factory', 'crane-lift.glb', -15.4, 6.8, -27.0, 3.1, 0);
-addKenneyModel('factory', 'crane-lift.glb', 15.4, 6.8, -27.0, 3.1, Math.PI);
+addKenneyModel('factory', 'crane.glb', -15.4, 0, -27.0 - EXPAND, 3.8, 0);
+addKenneyModel('factory', 'crane.glb', 15.4, 0, -27.0 - EXPAND, 3.8, Math.PI);
+addKenneyModel('factory', 'crane-lift.glb', -15.4, 6.8, -27.0 - EXPAND, 3.1, 0);
+addKenneyModel('factory', 'crane-lift.glb', 15.4, 6.8, -27.0 - EXPAND, 3.1, Math.PI);
 
 // A stepped industrial skyline replaces the six placeholder blocks behind the
 // water. These meshes retain their authored colour maps and low-poly bevels.
-addKenneyModel('city-industrial', 'building-a.glb', -28.5, 0, -51.5, 6.0, 0.12);
-addKenneyModel('city-industrial', 'building-d.glb', -16.8, 0, -53.0, 7.0, -0.08);
-addKenneyModel('city-industrial', 'building-h.glb', -5.0, 0, -50.5, 8.0, 0.18);
-addKenneyModel('city-industrial', 'building-k.glb', 7.7, 0, -53.0, 7.2, Math.PI);
-addKenneyModel('city-industrial', 'detail-tank.glb', 20.2, 0, -50.4, 8.4, 0.1);
-addKenneyModel('city-industrial', 'chimney-large.glb', 29.2, 0, -47.7, 5.4, 0);
+addKenneyModel('city-industrial', 'building-a.glb', -28.5, 0, -51.5 - EXPAND, 6.0, 0.12);
+addKenneyModel('city-industrial', 'building-d.glb', -16.8, 0, -53.0 - EXPAND, 7.0, -0.08);
+addKenneyModel('city-industrial', 'building-h.glb', -5.0, 0, -50.5 - EXPAND, 8.0, 0.18);
+addKenneyModel('city-industrial', 'building-k.glb', 7.7, 0, -53.0 - EXPAND, 7.2, Math.PI);
+addKenneyModel('city-industrial', 'detail-tank.glb', 20.2, 0, -50.4 - EXPAND, 8.4, 0.1);
+addKenneyModel('city-industrial', 'chimney-large.glb', 29.2, 0, -47.7 - EXPAND, 5.4, 0);
 
 // ---------------------------------------------------------------------------
+
+// =============================================================================
+// BREAKWATER EXPANSION: the yard grows from 52 m to 76 m. The original layout
+// stays in the middle; the outer ring adds spawn plazas, flank lanes, ramps and
+// elevated overlook towers. Everything is mirrored through the centre point so
+// both teams get identical routes.
+// =============================================================================
+const walkZones = [];
+function addFlatZone(minX, maxX, minZ, maxZ, h) {
+  walkZones.push({ kind: 'flat', minX, maxX, minZ, maxZ, h });
+}
+function addRampZone(minX, maxX, minZ, maxZ, axis, hStart, hEnd) {
+  walkZones.push({ kind: 'ramp', minX, maxX, minZ, maxZ, axis, hStart, hEnd });
+}
+function zoneHeight(x, z) {
+  let best = 0;
+  for (const zone of walkZones) {
+    if (x < zone.minX || x > zone.maxX || z < zone.minZ || z > zone.maxZ) continue;
+    let h = zone.h;
+    if (zone.kind === 'ramp') {
+      const t = zone.axis === 'x'
+        ? (x - zone.minX) / (zone.maxX - zone.minX)
+        : (z - zone.minZ) / (zone.maxZ - zone.minZ);
+      h = zone.hStart + (zone.hEnd - zone.hStart) * t;
+    }
+    if (h > best) best = h;
+  }
+  return best;
+}
+
+// Boxes are merged per colour so the whole ring costs a handful of draw calls.
+const batchGroups = new Map();
+function batchBox(x, y, z, sx, sy, sz, color, options = {}) {
+  const key = color + (options.glow ? 'g' : 's');
+  if (!options.invisible) {
+    if (!batchGroups.has(key)) batchGroups.set(key, { color, glow: !!options.glow, boxes: [] });
+    batchGroups.get(key).boxes.push({ x, y, z, sx, sy, sz, ry: options.ry || 0 });
+  }
+  if (options.solid) {
+    const c = Math.abs(Math.cos(options.ry || 0));
+    const sn = Math.abs(Math.sin(options.ry || 0));
+    const halfX = (sx * c + sz * sn) / 2;
+    const halfZ = (sx * sn + sz * c) / 2;
+    solidBounds.push({
+      x, z, halfX, halfZ, minX: x - halfX, maxX: x + halfX, minZ: z - halfZ, maxZ: z + halfZ,
+      minY: y - sy / 2, maxY: y + sy / 2
+    });
+  }
+}
+function flushBatches() {
+  const dummy = new THREE.Object3D();
+  for (const group of batchGroups.values()) {
+    const parts = group.boxes.map((b) => {
+      dummy.position.set(b.x, b.y, b.z);
+      dummy.rotation.set(0, b.ry, 0);
+      dummy.scale.set(b.sx, b.sy, b.sz);
+      dummy.updateMatrix();
+      return shared.box.clone().applyMatrix4(dummy.matrix);
+    });
+    const merged = mergeGeometries(parts, false);
+    parts.forEach((part) => part.dispose());
+    const material = group.glow
+      ? new THREE.MeshStandardMaterial({ color: group.color, emissive: group.color, emissiveIntensity: 0.9, roughness: 0.5 })
+      : new THREE.MeshStandardMaterial({ color: group.color, roughness: 0.74, metalness: 0.22 });
+    const batch = new THREE.Mesh(merged, material);
+    batch.castShadow = !group.glow;
+    batch.receiveShadow = true;
+    batch.layers.enable(1);
+    scene.add(batch);
+  }
+  batchGroups.clear();
+}
+
+const towerDeckTexture = deckTexture.clone();
+towerDeckTexture.wrapS = THREE.RepeatWrapping;
+towerDeckTexture.wrapT = THREE.RepeatWrapping;
+towerDeckTexture.repeat.set(2, 2);
+towerDeckTexture.needsUpdate = true;
+const towerDeckMaterial = new THREE.MeshStandardMaterial({ map: towerDeckTexture, roughness: 0.84, metalness: 0.16 });
+const rampSurfaceMaterial = new THREE.MeshStandardMaterial({ map: deckTexture, roughness: 0.88, metalness: 0.12 });
+
+function overlayFor(name, minX, maxX, minZ, maxZ) {
+  const y = (x, z) => zoneHeight(x, z);
+  return addWalkablePaintOverlay(name, [
+    [minX, y(minX, maxZ), maxZ], [maxX, y(maxX, maxZ), maxZ],
+    [minX, y(minX, minZ), minZ], [maxX, y(maxX, minZ), minZ]
+  ]);
+}
+
+// Ramp ascending toward `dir` (N = -z, S = +z, E = +x, W = -x), walled on both sides.
+function addRamp(cx, cz, width, run, rise, dir, name) {
+  const wedge = new THREE.Mesh(makeApproachWedge(width, rise, run, 0.3), rampSurfaceMaterial);
+  wedge.position.set(cx, 0, cz);
+  wedge.rotation.y = { N: 0, S: Math.PI, E: -Math.PI / 2, W: Math.PI / 2 }[dir];
+  wedge.castShadow = true;
+  wedge.receiveShadow = true;
+  wedge.layers.enable(1);
+  scene.add(wedge);
+  const alongX = dir === 'E' || dir === 'W';
+  const minX = alongX ? cx - run / 2 : cx - width / 2;
+  const maxX = alongX ? cx + run / 2 : cx + width / 2;
+  const minZ = alongX ? cz - width / 2 : cz - run / 2;
+  const maxZ = alongX ? cz + width / 2 : cz + run / 2;
+  const hStart = (dir === 'N' || dir === 'W') ? rise : 0;
+  const hEnd = (dir === 'N' || dir === 'W') ? 0 : rise;
+  addRampZone(minX, maxX, minZ, maxZ, alongX ? 'x' : 'z', hStart, hEnd);
+  const wallH = rise + 0.62;
+  for (const side of [-1, 1]) {
+    if (alongX) batchBox(cx, wallH / 2, cz + side * (width / 2 + 0.16), run, wallH, 0.32, 0x34464f, { solid: true });
+    else batchBox(cx + side * (width / 2 + 0.16), wallH / 2, cz, 0.32, wallH, run, 0x34464f, { solid: true });
+  }
+  overlayFor(name, minX, maxX, minZ, maxZ);
+}
+
+function addTower(cx, cz, w, d, h, accent, name) {
+  const minX = cx - w / 2;
+  const maxX = cx + w / 2;
+  const minZ = cz - d / 2;
+  const maxZ = cz + d / 2;
+  batchBox(cx, h / 2, cz, w, h, d, 0x3a4c57, { solid: true });
+  batchBox(cx, h * 0.2, cz, w + 0.14, 0.26, d + 0.14, 0x24343d);
+  batchBox(cx, h - 0.30, cz, w + 0.22, 0.07, d + 0.22, accent, { glow: true });
+  for (const sx of [-1, 1]) batchBox(cx + sx * (w / 2 - 0.09), h + 0.06, cz, 0.18, 0.12, d, 0x5b7078);
+  for (const sz of [-1, 1]) batchBox(cx, h + 0.06, cz + sz * (d / 2 - 0.09), w, 0.12, 0.18, 0x5b7078);
+  const top = new THREE.Mesh(new THREE.PlaneGeometry(w - 0.4, d - 0.4), towerDeckMaterial);
+  top.rotation.x = -Math.PI / 2;
+  top.position.set(cx, h + 0.004, cz);
+  top.receiveShadow = true;
+  top.layers.enable(1);
+  scene.add(top);
+  addFlatZone(minX, maxX, minZ, maxZ, h);
+  overlayFor(name, minX + 0.2, maxX - 0.2, minZ + 0.2, maxZ - 0.2);
+}
+
+// Low railing with a solid collider so players do not stroll off the open sides.
+function addRailing(x0, z0, x1, z1, baseY) {
+  const length = Math.hypot(x1 - x0, z1 - z0);
+  const cx = (x0 + x1) / 2;
+  const cz = (z0 + z1) / 2;
+  const alongX = Math.abs(x1 - x0) > Math.abs(z1 - z0);
+  const sx = alongX ? length : 0.14;
+  const sz = alongX ? 0.14 : length;
+  batchBox(cx, baseY + 1.0, cz, sx, 0.09, sz, 0x9aa9a0);
+  batchBox(cx, baseY + 0.55, cz, sx, 0.07, sz, 0x526f75);
+  const posts = Math.max(2, Math.round(length / 1.7) + 1);
+  for (let i = 0; i < posts; i++) {
+    const t = i / (posts - 1);
+    batchBox(x0 + (x1 - x0) * t, baseY + 0.52, z0 + (z1 - z0) * t, 0.12, 1.04, 0.12, 0x273f47);
+  }
+  batchBox(cx, baseY + 0.55, cz, alongX ? length : 0.3, 1.1, alongX ? 0.3 : length, 0x000000, { solid: true, invisible: true });
+}
+
+function addSpawnPlaza(sign, accent) {
+  const z = sign * SPAWN_Z;
+  const back = sign * (HALF - 0.6);
+  batchBox(0, 1.6, back, 17, 3.2, 0.5, 0x172d38, { solid: true });
+  batchBox(0, 3.0, back - sign * 0.3, 15, 0.16, 0.12, accent, { glow: true });
+  for (const x of [-8, 8]) {
+    batchBox(x, 2.4, back - sign * 0.2, 0.7, 4.8, 0.7, 0x2b424d, { solid: true });
+    batchBox(x, 4.9, back - sign * 0.2, 1.1, 0.2, 1.1, accent, { glow: true });
+  }
+  for (const x of [-13.5, -5.2, 5.2, 13.5]) {
+    batchBox(x, 0.7, z - sign * 3.6 - 0.0, 3.6, 1.4, 1.1, 0x3e505c, { solid: true });
+    batchBox(x, 1.43, z - sign * 3.6, 3.7, 0.07, 1.2, accent, { glow: true });
+  }
+}
+
+function buildExpansion() {
+  // Spawn plazas (blue +z, orange -z).
+  addSpawnPlaza(1, 0x20d8e9);
+  addSpawnPlaza(-1, 0xff7652);
+
+  for (const s of [1, -1]) {
+    // Overlook towers with ramps: one low flank tower, one high spawn-side tower.
+    addTower(s * -31, s * 19, 8, 8, 2.2, s > 0 ? 0x20d8e9 : 0xff7652, 'Flank tower ink layer ' + s);
+    addRamp(s * -22.5, s * 19, 3.4, 9, 2.2, s > 0 ? 'W' : 'E', 'Flank ramp ink layer ' + s);
+    addRailing(s * -35, s * 15, s * -35, s * 23, 2.2);
+    addRailing(s * -35, s * 15, s * -27, s * 15, 2.2);
+    addRailing(s * -35, s * 23, s * -27, s * 23, 2.2);
+
+    addTower(s * 31, s * 30, 8, 8, 3.0, s > 0 ? 0x20d8e9 : 0xff7652, 'Spawn tower ink layer ' + s);
+    addRamp(s * 31, s * 20.5, 3.4, 11, 3.0, s > 0 ? 'S' : 'N', 'Spawn ramp ink layer ' + s);
+    addRailing(s * 35, s * 26, s * 35, s * 34, 3.0);
+    addRailing(s * 27, s * 34, s * 35, s * 34, 3.0);
+    addRailing(s * 27, s * 26, s * 27, s * 34, 3.0);
+
+    // Flank containers and lane walls.
+    addContainer(s * -21.5, s * 31.0, 7.0, 3.8, s > 0 ? 0x27566a : 0x704536, 2.4);
+    addContainer(s * 19.0, s * 26.0, 6.4, 3.6, s > 0 ? 0x704536 : 0x27566a, 2.2);
+    addContainer(s * 32.5, s * 9.0, 5.6, 3.6, s > 0 ? 0x34495b : 0x43515b, 2.0);
+    batchBox(s * 28.6, 0.7, s * 4.0, 0.9, 1.4, 8.0, 0x314653, { solid: true });
+    batchBox(s * -28.6, 0.7, s * 11.0, 0.9, 1.4, 6.0, 0x314653, { solid: true });
+
+    // Mid-ring cover: staggered low walls, cylinders and crates.
+    const cover = [
+      [-12, 22.5, 4.2, 1.2, 1.3], [-3.5, 24.2, 1.4, 1.3, 4.6], [8.5, 22.0, 3.6, 1.2, 1.4],
+      [14.5, 28.5, 1.4, 1.2, 3.8], [-17.5, 26.5, 3.0, 1.15, 1.4], [26.0, 12.0, 1.4, 1.2, 3.6],
+      [-26.0, 4.0, 1.4, 1.2, 3.4]
+    ];
+    for (const [x, z, sx, sy, sz] of cover) {
+      batchBox(s * x, sy / 2, s * z, sx, sy, sz, 0x3e505c, { solid: true });
+      batchBox(s * x, sy + 0.04, s * z, sx + 0.08, 0.08, sz + 0.08, s > 0 ? 0x1a8fa0 : 0xb5543a, { glow: false });
+    }
+
+    // Lamp posts along the long edges.
+    for (const [x, z] of [[-17, 36.4], [17, 36.4], [36.4, 8], [36.4, 22], [-36.4, 8], [-36.4, 22]]) {
+      batchBox(s * x, 2.3, s * z, 0.14, 4.6, 0.14, 0x354c52);
+      batchBox(s * x, 4.7, s * z, 0.62, 0.16, 0.62, 0xffd28a, { glow: true });
+    }
+  }
+  flushBatches();
+
+  // Industrial skyline ring beyond the quay on the three remaining sides.
+  const buildings = ['building-a.glb', 'building-d.glb', 'building-h.glb', 'building-k.glb', 'detail-tank.glb', 'chimney-large.glb'];
+  const ring = HALF + 24;
+  let n = 0;
+  for (let t = -36; t <= 36; t += 13) {
+    const file = buildings[n++ % buildings.length];
+    const scale = 6 + (n % 3) * 0.9;
+    addKenneyModel('city-industrial', file, t, 0, ring + (n % 2) * 4, scale, Math.PI);
+    addKenneyModel('city-industrial', buildings[(n + 2) % buildings.length], ring + (n % 3) * 3, 0, t, scale, -Math.PI / 2);
+    addKenneyModel('city-industrial', buildings[(n + 4) % buildings.length], -ring - (n % 2) * 3, 0, t, scale, Math.PI / 2);
+  }
+}
+buildExpansion();
+
+// Floor markings for the new ring: spawn pads, hazard bands and lane arrows.
+function drawExpansionArtwork(ctx) {
+  const W = ctx.canvas.width;
+  const H = ctx.canvas.height;
+  const px = (x) => (x + HALF) / ARENA * W;
+  const py = (z) => (HALF - z) / ARENA * H;
+  const ppm = W / ARENA;
+  ctx.save();
+  for (const [sign, color, tint] of [[1, '#20d8e9', 'rgba(32,216,233,0.13)'], [-1, '#ff7652', 'rgba(255,118,82,0.13)']]) {
+    const z0 = sign * (SPAWN_Z - 4.2);
+    const z1 = sign * (HALF - 1.0);
+    ctx.fillStyle = tint;
+    ctx.fillRect(px(-11), Math.min(py(z0), py(z1)), 22 * ppm, Math.abs(py(z0) - py(z1)));
+    ctx.strokeStyle = color;
+    ctx.globalAlpha = 0.55;
+    ctx.lineWidth = Math.max(2, ppm * 0.18);
+    ctx.strokeRect(px(-11), Math.min(py(z0), py(z1)), 22 * ppm, Math.abs(py(z0) - py(z1)));
+    ctx.globalAlpha = 0.45;
+    for (let i = 0; i < 4; i++) {
+      const cz = sign * (SPAWN_Z - 2.6 + i * 1.6);
+      ctx.beginPath();
+      ctx.moveTo(px(-2.2), py(cz));
+      ctx.lineTo(px(0), py(cz - sign * 1.0));
+      ctx.lineTo(px(2.2), py(cz));
+      ctx.stroke();
+    }
+  }
+  // Hazard band along the flank walls.
+  ctx.globalAlpha = 0.35;
+  ctx.fillStyle = '#f0b64c';
+  for (const x of [-HALF + 1.2, HALF - 2.0]) {
+    for (let z = -HALF + 6; z < HALF - 6; z += 2.4) ctx.fillRect(px(x), py(z + 1.2), ppm * 0.8, ppm * 1.2);
+  }
+  ctx.restore();
+}
 
 function groundHeight(x, z) {
   if (Math.abs(x) <= 4.9 && Math.abs(z) <= 2.75) return 1.1675;
@@ -1424,7 +1690,7 @@ function groundHeight(x, z) {
   if (Math.abs(x) <= 2.9 && z < -2.725 && z > -6.975) {
     return clamp((z + 6.975) / 4.25, 0, 1) * 1.1675;
   }
-  return 0;
+  return zoneHeight(x, z);
 }
 
 function paintSurfaceHeight(x, z) {
@@ -1435,7 +1701,8 @@ function paintSurfaceHeight(x, z) {
   if (Math.abs(x) <= 2.9 && z >= -6.975 && z <= -2.725) {
     return clamp((z + 6.975) / 4.25, 0, 1) * 1.1675;
   }
-  return -0.045;
+  const zone = zoneHeight(x, z);
+  return zone > 0.001 ? zone : -0.045;
 }
 function isBlockedAt(x, z, feetY, radius = 0.46) {
   for (const box of solidBounds) {
@@ -1479,7 +1746,7 @@ function actorSurfaceHeight(actor, x, z) {
   return surface;
 }
 function moveOnGround(actor, dx, dz, radius = 0.46) {
-  const limit = actor.player ? 25.0 : 24.6;
+  const limit = HALF - (actor.player ? 1.0 : 1.4);
   const distance = Math.max(Math.abs(dx), Math.abs(dz));
   const steps = Math.max(1, Math.ceil(distance / Math.max(0.12, radius * 0.42)));
   const stepX = dx / steps;
@@ -1793,13 +2060,13 @@ function paintAt(position, team, radius = 2.05, quiet = false) {
   }
 }
 function seedArea(team, x, z) {
-  for (let i = 0; i < 7; i++) {
-    paintAt(new THREE.Vector3(x + (Math.random() - 0.5) * 5, 0, z + (Math.random() - 0.5) * 4), team, 2.2, true);
+  for (let i = 0; i < 9; i++) {
+    paintAt(new THREE.Vector3(x + (Math.random() - 0.5) * 8, 0, z + (Math.random() - 0.5) * 5), team, 2.3, true);
   }
 }
-seedArea(BLUE, 0, 21.2);
-seedArea(ORANGE, 0, -21.2);
-paintAt(new THREE.Vector3(0, 0, 22.2), BLUE, 2.45, true);
+seedArea(BLUE, 0, SPAWN_Z - 0.5);
+seedArea(ORANGE, 0, -SPAWN_Z + 0.5);
+paintAt(new THREE.Vector3(0, 0, SPAWN_Z), BLUE, 2.45, true);
 
 const shadowCanvas = document.createElement('canvas');
 shadowCanvas.width = 128;
@@ -2140,19 +2407,19 @@ function createActor(team, variation, x, z, playerControlled = false) {
   scene.add(group);
   return actor;
 }
-const player = createActor(BLUE, 0, 0, 22.2, true);
+const player = createActor(BLUE, 0, 0, SPAWN_Z, true);
 const blueBots = [
-  createActor(BLUE, 1, -8.8, 12.5),
-  createActor(BLUE, 2, -4.5, 17),
-  createActor(BLUE, 3, 4.8, 17),
-  createActor(BLUE, 4, 9.0, 12.5)
+  createActor(BLUE, 1, -8.8, SPAWN_Z - 4),
+  createActor(BLUE, 2, -4.5, SPAWN_Z - 1.5),
+  createActor(BLUE, 3, 4.8, SPAWN_Z - 1.5),
+  createActor(BLUE, 4, 9.0, SPAWN_Z - 4)
 ];
 const orangeBots = [
-  createActor(ORANGE, 0, -9.0, -12.5),
-  createActor(ORANGE, 1, -4.5, -17),
-  createActor(ORANGE, 2, 4.8, -17),
-  createActor(ORANGE, 3, 9.0, -12.5),
-  createActor(ORANGE, 4, 0, -13.5)
+  createActor(ORANGE, 0, -9.0, -SPAWN_Z + 4),
+  createActor(ORANGE, 1, -4.5, -SPAWN_Z + 1.5),
+  createActor(ORANGE, 2, 4.8, -SPAWN_Z + 1.5),
+  createActor(ORANGE, 3, 9.0, -SPAWN_Z + 4),
+  createActor(ORANGE, 4, 0, -SPAWN_Z + 3)
 ];
 const blueTeam = [player, ...blueBots];
 const orangeTeam = orangeBots;
@@ -2412,7 +2679,7 @@ function removeProjectile(index) {
 function respawnActor(actor) {
   const sign = actor.team === BLUE ? 1 : -1;
   const side = actor.variation % 2 === 0 ? -1 : 1;
-  actor.position.set(side * (3.5 + actor.variation * 1.15), 0, sign * (19.4 + Math.random() * 2.2));
+  actor.position.set(side * (3.5 + actor.variation * 1.15), 0, sign * (SPAWN_Z - 1.5 + Math.random() * 2.6));
   actor.position.y = groundHeight(actor.position.x, actor.position.z);
   actor.velocity.set(0, 0, 0);
   actor.verticalVelocity = 0;
@@ -3033,6 +3300,7 @@ function resetPaint() {
     wall.texture.needsUpdate = true;
   }
   drawArenaBaseArtwork(paintCtx);
+  drawExpansionArtwork(paintCtx);
   paintTexture.needsUpdate = true;
   raisedPaintCtx.clearRect(0, 0, 1024, 1024);
   raisedPaintTexture.needsUpdate = true;
@@ -3050,8 +3318,10 @@ function resetPaint() {
   paintRoughnessTexture.needsUpdate = true;
   paintHeightTexture.needsUpdate = true;
   paintClearcoatTexture.needsUpdate = true;
-  seedArea(BLUE, 0, 15.5);
-  seedArea(ORANGE, 0, -15.5);
+  seedArea(BLUE, 0, SPAWN_Z - 0.5);
+  seedArea(ORANGE, 0, -SPAWN_Z + 0.5);
+  seedArea(BLUE, 0, SPAWN_Z - 9);
+  seedArea(ORANGE, 0, -SPAWN_Z + 9);
   scoreCache = { blue: -1, orange: -1 };
   updateScore();
 }
@@ -3073,7 +3343,7 @@ function resetMatch() {
     actor.group.visible = true;
     const sign = actor.team === BLUE ? 1 : -1;
     const spread = actor.player ? 0 : (actor.variation - 2) * 2.2;
-    actor.position.set(spread, 0, sign * (actor.player ? 22.2 : 15.0 + (actor.variation % 2) * 3.2));
+    actor.position.set(spread, 0, sign * (actor.player ? SPAWN_Z : SPAWN_Z - 3.5 - (actor.variation % 2) * 2.4));
     actor.position.y = groundHeight(actor.position.x, actor.position.z);
     actor.velocity.set(0, 0, 0);
     actor.group.position.copy(actor.position);
@@ -3418,6 +3688,10 @@ function animate() {
     crosshairFireTimer -= delta;
     if (crosshairFireTimer <= 0) ui.crosshair.classList.remove('is-firing');
   }
+  const texel = (sun.shadow.camera.right - sun.shadow.camera.left) / sun.shadow.mapSize.x;
+  sun.target.position.set(Math.round(player.position.x / texel) * texel, 0, Math.round(player.position.z / texel) * texel);
+  sun.position.copy(sun.target.position).add(sunOffset);
+  sun.target.updateMatrixWorld();
   renderer.render(scene, camera);
 }
 function onResize() {
