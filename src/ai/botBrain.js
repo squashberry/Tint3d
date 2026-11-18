@@ -155,7 +155,7 @@ export function createBotBrain(api) {
       const d = actor.position.distanceTo(enemy.position);
       if (d > (enemy.diving ? 12 : 36) || d >= bestD) continue;
       _target.set(enemy.position.x, enemy.position.y + 1.0, enemy.position.z);
-      if (!lineOfSight(_eye, _target)) continue;
+      if (!lineOfSight(_eye, _target) || (api.smokeBlocks && api.smokeBlocks(_eye, _target))) continue;
       best = enemy;
       bestD = d;
     }
@@ -187,8 +187,13 @@ export function createBotBrain(api) {
   }
 
   function update(actor, delta) {
+    if (actor.frozen > 0) {
+      actor.velocity.set(0, 0, 0);
+      return;
+    }
     ensureNav();
     const ai = state(actor);
+    const spec = api.weaponSpec ? api.weaponSpec(actor) : { botCooldown: 0.4, bestRange: 11 };
     const team = actor.team;
     ai.goalTimer -= delta;
     ai.repathTimer -= delta;
@@ -205,7 +210,7 @@ export function createBotBrain(api) {
 
     // ---- mode selection -----------------------------------------------------
     let mode = 'paint';
-    if (enemy && !lowInk && actor.position.distanceTo(enemy.position) < 12 + ai.role.aggression * 12) mode = 'fight';
+    if (enemy && !lowInk && actor.position.distanceTo(enemy.position) < spec.bestRange + 6 + ai.role.aggression * 10) mode = 'fight';
     if (lowInk || (hurt && !enemy)) mode = 'refill';
     if (hurt && enemy && actor.position.distanceTo(enemy.position) > 8) mode = 'refill';
     if (mode !== ai.mode) { ai.mode = mode; ai.goalTimer = 0; ai.path = []; }
@@ -222,7 +227,7 @@ export function createBotBrain(api) {
         const dx = enemy.position.x - actor.position.x;
         const dz = enemy.position.z - actor.position.z;
         const d = Math.hypot(dx, dz) || 1;
-        const hold = 11 - ai.role.aggression * 3;
+        const hold = spec.bestRange - ai.role.aggression * 2;
         planTo(actor, ai, enemy.position.x - (dx / d) * hold, enemy.position.z - (dz / d) * hold);
         ai.goalTimer = 0.9;
       }
@@ -248,7 +253,7 @@ export function createBotBrain(api) {
       const toward = new THREE.Vector3(dx / d, 0, dz / d);
       if (ai.strafeTimer <= 0) { ai.strafe *= -1; ai.strafeTimer = 0.7 + Math.random() * 1.1; }
       const side = new THREE.Vector3(-toward.z * ai.strafe, 0, toward.x * ai.strafe);
-      const ideal = 10 - ai.role.aggression * 2.5;
+      const ideal = spec.bestRange - ai.role.aggression * 1.5;
       const push = clamp((d - ideal) / 6, -1, 1);
       desired = side.multiplyScalar(0.85).addScaledVector(toward, push * 0.9);
       if (d > ideal + 5) {
@@ -265,6 +270,7 @@ export function createBotBrain(api) {
       }
     }
 
+    speed *= actor.speedFactor ?? 1;
     const velocity = actor.velocity;
     if (desired && speed > 0 && desired.lengthSq() > 0.0001) {
       desired.normalize();
@@ -312,7 +318,7 @@ export function createBotBrain(api) {
         enemy.position.z + enemy.velocity.z * lead + (Math.random() - 0.5) * spread
       );
       api.fireActor(actor, _aim);
-      actor.fireCooldown = ai.role.fireGap * (0.8 + Math.random() * 0.5);
+      actor.fireCooldown = Math.max(spec.botCooldown * (0.85 + Math.random() * 0.4), ai.role.fireGap * 0.6);
     } else if (!enemy && actor.ink > 38 && ai.paintShotTimer <= 0 && planar > 3 && actor.fireCooldown <= 0 && mode !== 'refill') {
       const reach = 6 + Math.random() * 5;
       const sx = actor.position.x - Math.sin(actor.group.rotation.y) * reach;
