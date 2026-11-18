@@ -3,6 +3,8 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import './style.css';
 import { createOperatorGroup } from './operators/index.js';
+import { NavGrid } from './ai/nav.js';
+import { createBotBrain } from './ai/botBrain.js';
 
 const BLUE = 1;
 const ORANGE = 2;
@@ -1169,6 +1171,7 @@ cratePlacements.forEach((p, i) => {
   crateInstances.setMatrixAt(i, crateDummy.matrix);
   solidBounds.push({
     x: p[0], z: p[2], halfX: p[3] * 0.5, halfZ: p[5] * 0.5,
+    minX: p[0] - p[3] * 0.5, maxX: p[0] + p[3] * 0.5, minZ: p[2] - p[5] * 0.5, maxZ: p[2] + p[5] * 0.5,
     minY: p[1] - p[4] * 0.5, maxY: p[1] + p[4] * 0.5
   });
 });
@@ -1194,7 +1197,7 @@ drumPositions.forEach((p, i) => {
   crateDummy.updateMatrix();
   drumInstances.setMatrixAt(i, crateDummy.matrix);
   solidBounds.push({
-    x: p[0], z: p[2], halfX: p[3], halfZ: p[5],
+    shape: 'circle', x: p[0], z: p[2], radius: p[3],
     minY: p[1] - p[4] * 0.5, maxY: p[1] + p[4] * 0.5
   });
 });
@@ -1383,8 +1386,10 @@ function addKenneyModel(pack, file, x, floorY, z, scale, rotationY = 0, solid = 
     scene.add(model);
 
     if (solid) {
+      const halfX = size.x * 0.42;
+      const halfZ = size.z * 0.42;
       solidBounds.push({
-        x, z, halfX: size.x * 0.42, halfZ: size.z * 0.42,
+        x, z, halfX, halfZ, minX: x - halfX, maxX: x + halfX, minZ: z - halfZ, maxZ: z + halfZ,
         minY: floorY, maxY: floorY + size.y
       });
     }
@@ -2687,6 +2692,7 @@ function respawnActor(actor) {
   actor.health = 100;
   actor.ink = 100;
   actor.respawn = 0;
+  actor.ai = null;
   actor.invulnerable = 1.4;
   actor.group.visible = true;
   actor.group.position.copy(actor.position);
@@ -3134,6 +3140,19 @@ function updateRagdolls(delta) {
     }
   }
 }
+const botNav = new NavGrid({
+  half: HALF,
+  cell: 1.5,
+  heightAt: (x, z) => groundHeight(x, z),
+  isWalkable: (x, z, h) => !isBlockedAt(x, z, h, 0.62)
+});
+const botBrain = createBotBrain({
+  BLUE, ORANGE, HALF, GRID, gridStep, owners, ownerAt, nav: botNav, solidBounds,
+  hasFriendlyInk: hasFriendlyInkUnderfoot,
+  moveOnGround, paintAt, fireActor, spawnMotionSpray, animateActor, groundHeight,
+  enemiesOf: (actor) => (actor.team === BLUE ? orangeTeam : blueTeam)
+    .filter((other) => other.group.visible && other.respawn <= 0 && !other.ragdollState)
+});
 function updateBots(delta) {
   for (const actor of [...blueBots, ...orangeBots]) {
     if (actor.respawn > 0) {
@@ -3143,43 +3162,8 @@ function updateBots(delta) {
     }
     if (!actor.group.visible) continue;
     actor.fireCooldown -= delta;
-    actor.paintCooldown -= delta;
-    actor.moveCooldown -= delta;
     actor.invulnerable = Math.max(0, actor.invulnerable - delta);
-    const enemy = nearestEnemy(actor);
-    if (actor.moveCooldown <= 0 || actor.position.distanceTo(actor.target) < 1.2) {
-      const laneZ = actor.team === BLUE ? -7.5 - Math.random() * 15 : 7.5 + Math.random() * 15;
-      actor.target.set((Math.random() - 0.5) * 39, 0, laneZ);
-      actor.moveCooldown = 2.0 + Math.random() * 2.4;
-    }
-    const direction = actor.target.clone().sub(actor.position);
-    direction.y = 0;
-    if (direction.lengthSq() > 0.2) {
-      direction.normalize();
-      moveOnGround(actor, direction.x * 4.8 * delta, direction.z * 4.8 * delta, 0.43);
-      actor.group.position.copy(actor.position);
-      const desiredYaw = Math.atan2(-direction.x, -direction.z);
-      const turn = Math.atan2(Math.sin(desiredYaw - actor.group.rotation.y), Math.cos(desiredYaw - actor.group.rotation.y));
-      actor.group.rotation.y += turn * (1 - Math.exp(-14 * delta));
-      actor.walkPhase += delta * 9;
-      animateActor(actor, 1, delta);
-      actor.effectTimer -= delta;
-      if (actor.effectTimer <= 0) {
-        spawnMotionSpray(actor, 1, 0.42);
-        actor.effectTimer = 0.24;
-      }
-    } else {
-      animateActor(actor, 0, delta);
-    }
-    if (actor.paintCooldown <= 0) {
-      actor.paintCooldown = 0.72 + Math.random() * 0.45;
-      paintAt(new THREE.Vector3(actor.position.x, 0, actor.position.z), actor.team, 1.06, true);
-    }
-    if (enemy && actor.fireCooldown <= 0 && actor.position.distanceTo(enemy.position) < 32) {
-      actor.group.rotation.y = Math.atan2(-(enemy.position.x - actor.position.x), -(enemy.position.z - actor.position.z));
-      fireActor(actor, enemy.position.clone().add(new THREE.Vector3(0, 0.8, 0)));
-    }
-    actor.ink = Math.min(100, actor.ink + delta * 9);
+    botBrain.update(actor, delta);
   }
 }
 function fireFromCurrentReticle() {
@@ -3339,6 +3323,7 @@ function resetMatch() {
     actor.health = 100;
     actor.ink = 100;
     actor.respawn = 0;
+    actor.ai = null;
     actor.invulnerable = 0;
     actor.group.visible = true;
     const sign = actor.team === BLUE ? 1 : -1;
