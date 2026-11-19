@@ -2526,6 +2526,7 @@ let crosshairFireTimer = 0;
 let jumpQueued = false;
 let jumpHeld = false;
 let diveHeld = false;
+let diveWarned = false;
 let firePointer = null;
 let sprintLocked = false;
 let sprintWasRequested = false;
