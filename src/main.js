@@ -5,6 +5,7 @@ import './style.css';
 import { createOperatorGroup, attachRigid } from './operators/index.js';
 import { WEAPONS, BOT_WEAPONS } from './gameplay/weapons.js';
 import { createItems, ITEM_ORDER } from './gameplay/items.js';
+import { createPixelBurst } from './gameplay/burst.js';
 import { NavGrid } from './ai/nav.js';
 import { createBotBrain } from './ai/botBrain.js';
 
@@ -1777,7 +1778,9 @@ function moveOnGround(actor, dx, dz, radius = 0.46) {
   const surfaceY = actorSurfaceHeight(actor, actor.position.x, actor.position.z);
   // Keep air momentum, but settle onto the highest reachable solid surface.
   if (!actor.player) {
-    actor.position.y = surfaceY;
+    if (actor.grounded === false) actor.position.y = Math.max(actor.position.y, surfaceY);
+    else if (surfaceY < actor.position.y - 0.12) { actor.grounded = false; actor.verticalVelocity = Math.min(0, actor.verticalVelocity || 0); }
+    else actor.position.y = surfaceY;
   } else if (actor.grounded && surfaceY < actor.position.y - 0.12) {
     // Walking off a raised cover edge starts a real fall instead of snapping down.
     actor.grounded = false;
@@ -2714,6 +2717,13 @@ function respawnActor(actor) {
   actor.ink = 100;
   actor.respawn = 0;
   actor.ai = null;
+  actor.frozen = 0;
+  actor.sticky = 0;
+  actor.drinking = 0;
+  actor.diving = false;
+  actor.sliding = false;
+  actor.flow = 0;
+  if (!actor.player) { setWeapon(actor, BOT_WEAPONS[actor.variation % BOT_WEAPONS.length]); items.loadout(actor); }
   actor.invulnerable = 1.4;
   actor.group.visible = true;
   actor.group.position.copy(actor.position);
@@ -2729,6 +2739,25 @@ function respawnActor(actor) {
     actor.coyoteTimer = 0.12;
     lastPlayerPaintPosition = new THREE.Vector3(actor.position.x, 0, actor.position.z);
   }
+}
+const pixelBurst = createPixelBurst(scene);
+function burstActor(actor, source) {
+  const ink = actor.team === BLUE ? [0x20d8e9, 0x7cf0ff, 0x1692a8] : [0xff7652, 0xffb094, 0xc2492c];
+  const palette = [...ink, ...ink, 0x1c2a33, 0x2f4452, 0xf2f6f4, 0xd7a07a, 0x8a5a3a, 0x3a2a1f];
+  let push = null;
+  if (source?.position) {
+    push = new THREE.Vector3(actor.position.x - source.position.x, 0, actor.position.z - source.position.z);
+    if (push.lengthSq() > 0.01) push.normalize(); else push = null;
+  }
+  pixelBurst.spawn(actor.position, palette, { count: 190, push, floorAt: paintSurfaceHeight });
+  spawnHitBurst(new THREE.Vector3(actor.position.x, actor.position.y + 1.0, actor.position.z), actor.team, 2.2);
+  playPop(1.6);
+  if (camera.position.distanceTo(actor.position) < 20) cameraShake = Math.max(cameraShake, 0.14);
+  actor.group.visible = false;
+  if (actor.shadow) actor.shadow.visible = false;
+  if (actor.diveBlob) actor.diveBlob.visible = false;
+  actor.diving = false;
+  actor.sliding = false;
 }
 function damageActor(actor, amount, source) {
   if (actor.invulnerable > 0 || !actor.group.visible || actor.ragdollState) return;
@@ -2758,6 +2787,11 @@ function damageActor(actor, amount, source) {
     actor.velocity.addScaledVector(direction, 3.2);
     actor.group.visible = true;
     if (actor.shadow) actor.shadow.visible = true;
+    if (!actor.player) {
+      // Bots pop into pixels; the skeletal death clip is kept for the player.
+      actor.ragdollState = null;
+      burstActor(actor, source);
+    }
     if (source && source.player) {
       source.eliminations++;
       totalEliminations++;
@@ -3442,6 +3476,9 @@ const botBrain = createBotBrain({
   BLUE, ORANGE, HALF, GRID, gridStep, owners, ownerAt, nav: botNav, solidBounds,
   hasFriendlyInk: hasFriendlyInkUnderfoot,
   moveOnGround, paintAt, fireActor, spawnMotionSpray, animateActor, groundHeight,
+  items, actorSurfaceHeight, ledgeAssist, spawnSplash,
+  updateDive: (actor, delta, want) => updateDive(actor, delta, want),
+  diveTick: (actor, delta) => diveSurfTick(actor, delta),
   smokeBlocks: (from, to) => items.smokeBlocks(from, to),
   weaponSpec: (actor) => WEAPONS[actor.weaponType || 'pulse'],
   enemiesOf: (actor) => (actor.team === BLUE ? orangeTeam : blueTeam)
@@ -3992,6 +4029,7 @@ function animate() {
     updatePlayer(delta);
     updateBots(delta);
     items.update(delta);
+    pixelBurst.update(delta);
     // Refresh camera after movement and before reading the aim ray.
     updateCamera(delta);
     if (fireHeld) fireActor(player, getAimPoint());
