@@ -26,7 +26,6 @@ export function createItems(api) {
   const smokes = [];
   const effects = [];
   const iced = new Set();
-  let heldJug = null;
   let time = 0;
 
   const geo = {
@@ -119,11 +118,19 @@ export function createItems(api) {
   }
 
   // -------------------------------------------------------------- inventory
+  const inventories = new Map([[player, inventory]]);
+  const heldJugs = new Map();
+  const emptyInventory = () => ({ jug: 0, grenade: 0, sticky: 0, ice: 0, smoke: 0 });
+  function inventoryOf(actor) {
+    if (!inventories.has(actor)) inventories.set(actor, emptyInventory());
+    return inventories.get(actor);
+  }
   function notifyInventory() { api.onInventory?.(inventory); }
-  function give(type, count = 1) {
-    if (inventory[type] >= MAX_STACK) return false;
-    inventory[type] = Math.min(MAX_STACK, inventory[type] + count);
-    notifyInventory();
+  function give(type, count = 1, actor = player) {
+    const inv = inventoryOf(actor);
+    if (inv[type] >= MAX_STACK) return false;
+    inv[type] = Math.min(MAX_STACK, inv[type] + count);
+    if (actor === player) notifyInventory();
     return true;
   }
   function weightedItem() {
@@ -131,9 +138,17 @@ export function createItems(api) {
     for (const [type, weight] of Object.entries(DROP_WEIGHTS)) { roll -= weight; if (roll <= 0) return type; }
     return 'grenade';
   }
+  /** Bots start every life with a random pocketful so fights have variety. */
+  function loadout(actor) {
+    if (actor.player) return;
+    const inv = emptyInventory();
+    inv[weightedItem()] = 1;
+    if (Math.random() < 0.5) inv[weightedItem()] += 1;
+    inventories.set(actor, inv);
+  }
 
   // ---------------------------------------------------------------- pick-ups
-  function spawnPickup(kind, type, x, z, ignore = 0) {
+  function spawnPickup(kind, type, x, z, ignore = 0, launch = null) {
     const limit = api.HALF - 2;
     x = clamp(x, -limit, limit);
     z = clamp(z, -limit, limit);
@@ -147,26 +162,86 @@ export function createItems(api) {
     const beam = new THREE.Mesh(geo.beam, glow(color, 0.2));
     beam.position.y = 0.9;
     group.add(model, ring, beam);
-    group.position.set(x, api.groundHeight(x, z), z);
+    const ground = api.groundHeight(x, z);
+    group.position.set(x, launch ? launch.y : ground, z);
     scene.add(group);
-    pickups.push({ kind, type, group, model, ring, age: 0, life: 40, ignore, x, z, baseY: group.position.y });
-    while (pickups.length > 26) removePickup(0);
+    const pickup = {
+      kind, type, group, model, ring, age: 0, life: 40, ignore, x, z, baseY: ground, y: group.position.y,
+      flying: !!launch, vel: launch ? new THREE.Vector3(launch.vx, launch.vy, launch.vz) : null
+    };
+    if (launch) ring.visible = false;
+    pickups.push(pickup);
+    while (pickups.length > 30) removePickup(0);
   }
   function removePickup(index) {
     const p = pickups[index];
     scene.remove(p.group);
-    p.group.traverse((n) => { if (n.isMesh && n.material && n.material !== undefined && n.material.dispose && !n.material.__shared) n.material.dispose(); });
+    p.group.traverse((n) => { if (n.isMesh && n.material?.dispose) n.material.dispose(); });
     pickups.splice(index, 1);
   }
 
+  /** Everything the actor was carrying bursts out of them. */
   function onElimination(actor) {
     if (actor.player) return;
-    const ox = (Math.random() - 0.5) * 0.8;
-    const oz = (Math.random() - 0.5) * 0.8;
-    if (Math.random() < 0.65) spawnPickup('item', weightedItem(), actor.position.x + ox, actor.position.z + oz);
-    if (actor.weaponType && actor.weaponType !== 'pulse') {
-      spawnPickup('weapon', actor.weaponType, actor.position.x - ox, actor.position.z - oz);
+    const inv = inventoryOf(actor);
+    const drops = [];
+    for (const type of ITEM_ORDER) for (let i = 0; i < inv[type]; i++) drops.push(['item', type]);
+    if (Math.random() < 0.4) drops.push(['item', weightedItem()]);
+    if (actor.weaponType && actor.weaponType !== 'pulse') drops.push(['weapon', actor.weaponType]);
+    inventories.set(actor, emptyInventory());
+    drops.slice(0, 6).forEach(([kind, type], i) => {
+      const angle = (i / Math.max(1, drops.length)) * Math.PI * 2 + Math.random() * 0.8;
+      const speed = 3.5 + Math.random() * 3.5;
+      spawnPickup(kind, type, actor.position.x, actor.position.z, 0.5, {
+        y: actor.position.y + 1.1, vx: Math.cos(angle) * speed, vy: 6 + Math.random() * 4, vz: Math.sin(angle) * speed
+      });
+    });
+  }
+
+  function movePickup(p, delta) {
+    p.vel.y -= 22 * delta;
+    let nx = p.x + p.vel.x * delta;
+    let nz = p.z + p.vel.z * delta;
+    const limit = api.HALF - 1.5;
+    nx = clamp(nx, -limit, limit);
+    nz = clamp(nz, -limit, limit);
+    const hit = api.solidBounds.some((box) => {
+      if (p.y <= box.minY || p.y >= box.maxY) return false;
+      if (box.shape === 'circle') return (nx - box.x) ** 2 + (nz - box.z) ** 2 < (box.radius + 0.2) ** 2;
+      return nx > box.minX - 0.2 && nx < box.maxX + 0.2 && nz > box.minZ - 0.2 && nz < box.maxZ + 0.2;
+    });
+    if (hit) { p.vel.x *= -0.3; p.vel.z *= -0.3; nx = p.x; nz = p.z; }
+    p.x = nx;
+    p.z = nz;
+    p.y += p.vel.y * delta;
+    const ground = api.groundHeight(p.x, p.z);
+    if (p.y <= ground) {
+      p.y = ground;
+      if (Math.abs(p.vel.y) > 2.2) { p.vel.y = Math.abs(p.vel.y) * 0.42; p.vel.x *= 0.7; p.vel.z *= 0.7; }
+      else { p.flying = false; p.vel = null; p.baseY = ground; p.ring.visible = true; }
     }
+    p.group.position.set(p.x, p.y, p.z);
+  }
+
+  function collect(actor, p) {
+    if (p.kind === 'item') {
+      if (!give(p.type, 1, actor)) return false;
+      if (actor === player) {
+        api.showToast('GOT ' + ITEM_DEFS[p.type].label + '  /  ' + (ITEM_ORDER.indexOf(p.type) + 1));
+        api.playPop(1.3);
+      }
+      return true;
+    }
+    if (actor.weaponType === p.type) return false;
+    if (actor !== player && actor.weaponType !== 'pulse') return false;
+    const old = actor.weaponType;
+    api.setWeapon(actor, p.type);
+    if (actor === player) {
+      api.showToast('TOOK ' + WEAPONS[p.type].name);
+      api.playPop(1.5);
+    }
+    if (old && old !== 'pulse') spawnPickup('weapon', old, actor.position.x, actor.position.z, 1.6);
+    return true;
   }
 
   function updatePickups(delta) {
@@ -174,123 +249,118 @@ export function createItems(api) {
       const p = pickups[i];
       p.age += delta;
       p.ignore = Math.max(0, p.ignore - delta);
+      if (p.flying) movePickup(p, delta);
       p.model.rotation.y += delta * 1.8;
-      p.model.position.y = 0.75 + Math.sin(time * 2.4 + i) * 0.08;
+      p.model.position.y = p.flying ? 0.5 : 0.75 + Math.sin(time * 2.4 + i) * 0.08;
       p.ring.scale.setScalar(1 + Math.sin(time * 3 + i) * 0.06);
-      const fade = p.life - p.age < 4 ? (Math.sin(time * 14) > 0 ? 1 : 0.15) : 1;
-      p.group.visible = fade > 0.5;
+      p.group.visible = p.life - p.age < 4 ? Math.sin(time * 14) > -0.4 : true;
       if (p.age > p.life) { removePickup(i); continue; }
-      if (player.respawn > 0 || !player.group.visible || player.frozen > 0 || p.ignore > 0) continue;
-      const dx = player.position.x - p.x;
-      const dz = player.position.z - p.z;
-      if (dx * dx + dz * dz > 1.7 * 1.7 || Math.abs(player.position.y - p.baseY) > 2.2) continue;
-      if (p.kind === 'item') {
-        if (give(p.type)) {
-          api.showToast('GOT ' + ITEM_DEFS[p.type].label + '  /  ' + (ITEM_ORDER.indexOf(p.type) + 1));
-          api.playPop(1.3);
-          removePickup(i);
-        }
-      } else if (player.weaponType !== p.type) {
-        const old = player.weaponType;
-        api.setWeapon(player, p.type);
-        api.showToast('TOOK ' + WEAPONS[p.type].name);
-        api.playPop(1.5);
-        removePickup(i);
-        if (old && old !== 'pulse') spawnPickup('weapon', old, player.position.x, player.position.z, 1.6);
+      if (p.flying || p.ignore > 0) continue;
+      for (const actor of api.actors) {
+        if (actor.respawn > 0 || !actor.group.visible || actor.frozen > 0 || actor.ragdollState || actor.diving) continue;
+        const dx = actor.position.x - p.x;
+        const dz = actor.position.z - p.z;
+        if (dx * dx + dz * dz > 1.7 * 1.7 || Math.abs(actor.position.y - p.baseY) > 2.2) continue;
+        if (collect(actor, p)) { removePickup(i); break; }
       }
     }
   }
 
   // ------------------------------------------------------------------ use
-  function canAct() {
-    return player.respawn <= 0 && player.group.visible && !(player.frozen > 0) && !player.ragdollState && !player.diving && !(player.drinking > 0);
+  function canAct(actor) {
+    return actor.respawn <= 0 && actor.group.visible && !(actor.frozen > 0) && !actor.ragdollState && !actor.diving && !(actor.drinking > 0);
   }
 
-  function useItem(type) {
-    if (!inventory[type] || !canAct()) {
-      if (!inventory[type] && player.respawn <= 0) api.showToast('NO ' + ITEM_DEFS[type].label);
-      return;
+  /** Use an item as `actor` (player or bot); `aim` is the world point to throw at. */
+  function useFor(actor, type, aim) {
+    const inv = inventoryOf(actor);
+    if (!inv[type] || !canAct(actor)) {
+      if (actor === player && !inv[type] && actor.respawn <= 0) api.showToast('NO ' + ITEM_DEFS[type].label);
+      return false;
     }
     if (type === 'jug') {
-      if (player.health >= 99) { api.showToast('VITALS FULL'); return; }
-      inventory.jug--;
-      startDrinking();
+      if (actor.health >= 99) { if (actor === player) api.showToast('VITALS FULL'); return false; }
+      inv.jug--;
+      startDrinking(actor);
     } else {
-      inventory[type]--;
-      throwItem(type);
+      inv[type]--;
+      throwItem(actor, type, aim);
     }
-    notifyInventory();
+    if (actor === player) notifyInventory();
+    return true;
   }
+  function useItem(type) { useFor(player, type, api.getAimPoint()); }
 
-  function throwItem(type) {
-    const origin = new THREE.Vector3(player.position.x, player.position.y + 1.55, player.position.z);
-    const aim = api.getAimPoint();
-    const target = aim.clone();
-    const flat = new THREE.Vector3(target.x - origin.x, 0, target.z - origin.z);
+  function throwItem(actor, type, aim) {
+    const origin = new THREE.Vector3(actor.position.x, actor.position.y + 1.55, actor.position.z);
+    const flat = new THREE.Vector3(aim.x - origin.x, 0, aim.z - origin.z);
     const reach = Math.min(flat.length(), 22);
-    if (flat.lengthSq() < 0.01) flat.set(Math.sin(api.getYaw()), 0, -Math.cos(api.getYaw()));
+    if (flat.lengthSq() < 0.01) flat.set(Math.sin(actor.group.rotation.y) * -1, 0, -Math.cos(actor.group.rotation.y));
     flat.normalize();
     origin.addScaledVector(flat, 0.5);
     const t = clamp(reach / 15, 0.4, 1.4);
-    const velocity = new THREE.Vector3(flat.x * reach / t, (target.y - origin.y) / t + 0.5 * GRAVITY * t, flat.z * reach / t);
+    const velocity = new THREE.Vector3(flat.x * reach / t, (aim.y - origin.y) / t + 0.5 * GRAVITY * t, flat.z * reach / t);
     const mesh = makeItemMesh(type);
     mesh.position.copy(origin);
     scene.add(mesh);
-    thrown.push({ type, mesh, velocity, age: 0, fuse: type === 'grenade' ? 1.9 : (type === 'sticky' ? 2.6 : 3.0), stuck: null, rest: false, bounces: 0, team: player.team, owner: player });
-    player.group.userData.shotTimer = 0.3;
-    api.playPop(0.9);
-    api.showToast(ITEM_DEFS[type].hint);
+    thrown.push({ type, mesh, velocity, age: 0, fuse: type === 'grenade' ? 1.9 : (type === 'sticky' ? 2.6 : 3.0), stuck: null, rest: false, bounces: 0, team: actor.team, owner: actor });
+    actor.group.userData.shotTimer = 0.3;
+    if (actor === player) {
+      api.playPop(0.9);
+      api.showToast(ITEM_DEFS[type].hint);
+    }
   }
 
-  function startDrinking() {
-    player.drinking = 2.3;
-    player.sliding = false;
-    const c = player.group.userData.character;
+  function startDrinking(actor) {
+    actor.drinking = 2.3;
+    actor.sliding = false;
+    const c = actor.group.userData.character;
     const hand = c?.operator?.bones?.get('hand_r');
     if (hand) {
       const jug = makeItemMesh('jug');
       jug.scale.setScalar(1.35);
-      player.group.updateMatrixWorld(true);
+      actor.group.updateMatrixWorld(true);
       const world = hand.getWorldPosition(new THREE.Vector3());
-      const local = player.group.worldToLocal(world.clone());
+      const local = actor.group.worldToLocal(world.clone());
       local.y += 0.02;
-      api.attachRigid(player.group, hand, jug, local, new THREE.Quaternion());
-      heldJug = jug;
+      api.attachRigid(actor.group, hand, jug, local, new THREE.Quaternion());
+      heldJugs.set(actor, jug);
     }
-    api.showToast('DRINKING  /  WALKING PACE');
+    if (actor === player) api.showToast('DRINKING  /  WALKING PACE');
   }
 
-  function finishDrinking(cancel = false) {
-    player.drinking = 0;
-    if (heldJug) {
-      const world = heldJug.getWorldPosition(new THREE.Vector3());
-      heldJug.parent?.remove(heldJug);
-      if (!cancel) {
-        const prop = makeItemMesh('jug');
-        prop.scale.setScalar(1.35);
-        prop.position.copy(world);
-        scene.add(prop);
-        const forward = new THREE.Vector3(Math.sin(api.getYaw()), 0, -Math.cos(api.getYaw()));
-        effects.push({
-          kind: 'debris', mesh: prop, life: 2.4, max: 2.4,
-          velocity: forward.multiplyScalar(5.5).add(new THREE.Vector3(0, 5.2, 0)),
-          spin: new THREE.Vector3(6, 3, 8)
-        });
-        api.showToast('JUG TOSSED  /  VITALS UP');
-      }
-      heldJug = null;
-    }
+  function finishDrinking(actor, cancel = false) {
+    actor.drinking = 0;
+    const jug = heldJugs.get(actor);
+    if (!jug) return;
+    heldJugs.delete(actor);
+    const world = jug.getWorldPosition(new THREE.Vector3());
+    jug.parent?.remove(jug);
+    if (cancel) return;
+    const prop = makeItemMesh('jug');
+    prop.scale.setScalar(1.35);
+    prop.position.copy(world);
+    scene.add(prop);
+    const forward = new THREE.Vector3(-Math.sin(actor.group.rotation.y), 0, -Math.cos(actor.group.rotation.y));
+    effects.push({
+      kind: 'debris', mesh: prop, life: 2.4, max: 2.4,
+      velocity: forward.multiplyScalar(5.5).add(new THREE.Vector3(0, 5.2, 0)),
+      spin: new THREE.Vector3(6, 3, 8)
+    });
+    if (actor === player) api.showToast('JUG TOSSED  /  VITALS UP');
   }
 
   function updateDrinking(delta) {
-    player.drinkBlend = approach(player.drinkBlend || 0, player.drinking > 0 ? 1 : 0, 9, delta);
-    if (!(player.drinking > 0)) return;
-    if (player.respawn > 0 || player.frozen > 0 || player.ragdollState) { finishDrinking(true); return; }
-    player.drinking -= delta;
-    player.health = Math.min(100, player.health + (65 / 2.3) * delta);
-    player.ink = Math.min(100, player.ink + 9 * delta);
-    api.updateHud();
-    if (player.drinking <= 0) finishDrinking(false);
+    for (const actor of api.actors) {
+      actor.drinkBlend = approach(actor.drinkBlend || 0, actor.drinking > 0 ? 1 : 0, 9, delta);
+      if (!(actor.drinking > 0)) continue;
+      if (actor.respawn > 0 || actor.frozen > 0 || actor.ragdollState || !actor.group.visible) { finishDrinking(actor, true); continue; }
+      actor.drinking -= delta;
+      actor.health = Math.min(100, actor.health + (65 / 2.3) * delta);
+      actor.ink = Math.min(100, actor.ink + 9 * delta);
+      if (actor === player) api.updateHud();
+      if (actor.drinking <= 0) finishDrinking(actor, false);
+    }
   }
 
   // ------------------------------------------------------------- explosions
@@ -410,11 +480,11 @@ export function createItems(api) {
         hit++;
       }
     }
-    api.showToast(hit ? 'ICE CUBE  /  ' + hit + ' FROZEN' : 'ICE CUBE  /  MISSED');
+    if (t.owner === player) api.showToast(hit ? 'ICE CUBE  /  ' + hit + ' FROZEN' : 'ICE CUBE  /  MISSED');
   }
 
   // ------------------------------------------------------------------ smoke
-  function spawnSmoke(pos) {
+  function spawnSmoke(pos, announce = true) {
     const puffs = [];
     for (let i = 0; i < 16; i++) {
       const puff = new THREE.Mesh(geo.sphere, new THREE.MeshBasicMaterial({ color: i % 3 ? 0x4be07a : 0x8bffb0, transparent: true, opacity: 0.0, depthWrite: false }));
@@ -427,7 +497,7 @@ export function createItems(api) {
     }
     smokes.push({ pos: pos.clone(), life: 9, max: 9, radius: 4.8, puffs });
     while (smokes.length > 3) { const old = smokes.shift(); old.puffs.forEach((m) => { scene.remove(m); m.material.dispose(); }); }
-    api.showToast('GREEN SMOKE  /  COVER DEPLOYED');
+    if (announce) api.showToast('GREEN SMOKE  /  COVER DEPLOYED');
   }
 
   function updateSmokes(delta) {
@@ -518,7 +588,7 @@ export function createItems(api) {
       }
       if (contact) {
         if (t.type === 'ice') { iceBurst(t.mesh.position.clone(), t); scene.remove(t.mesh); thrown.splice(i, 1); continue; }
-        if (t.type === 'smoke' && contact !== 'wall') { spawnSmoke(t.mesh.position.clone().setY(api.paintSurfaceHeight(t.mesh.position.x, t.mesh.position.z))); scene.remove(t.mesh); thrown.splice(i, 1); continue; }
+        if (t.type === 'smoke' && contact !== 'wall') { spawnSmoke(t.mesh.position.clone().setY(api.paintSurfaceHeight(t.mesh.position.x, t.mesh.position.z)), t.owner === player); scene.remove(t.mesh); thrown.splice(i, 1); continue; }
         if (t.type === 'sticky' && !t.rest && !t.stuck) {
           t.rest = true;
           t.fuse = Math.min(t.fuse - t.age + 1.15, 1.15);
@@ -527,7 +597,7 @@ export function createItems(api) {
         }
       }
       if (t.age >= t.fuse && (t.type === 'grenade' || t.type === 'sticky')) { detonate(t); thrown.splice(i, 1); continue; }
-      if (t.type === 'smoke' && t.age > t.fuse) { spawnSmoke(t.mesh.position.clone()); scene.remove(t.mesh); thrown.splice(i, 1); continue; }
+      if (t.type === 'smoke' && t.age > t.fuse) { spawnSmoke(t.mesh.position.clone(), t.owner === player); scene.remove(t.mesh); thrown.splice(i, 1); continue; }
       if (t.type === 'ice' && t.age > t.fuse) { iceBurst(t.mesh.position.clone(), t); scene.remove(t.mesh); thrown.splice(i, 1); continue; }
       if (t.type === 'sticky' || t.type === 'grenade') {
         const flash = t.fuse - t.age < 0.5 ? (Math.sin(t.age * 40) > 0 ? 1.6 : 0.6) : 1;
@@ -581,15 +651,17 @@ export function createItems(api) {
     for (const e of effects) scene.remove(e.mesh);
     effects.length = 0;
     for (const actor of [...iced]) { if (actor.iceMesh) { scene.remove(actor.iceMesh); actor.iceMesh = null; } actor.frozen = 0; iced.delete(actor); }
-    if (heldJug) { heldJug.parent?.remove(heldJug); heldJug = null; }
-    player.drinking = 0;
-    player.drinkBlend = 0;
+    for (const [actor, jug] of heldJugs) { jug.parent?.remove(jug); actor.drinking = 0; actor.drinkBlend = 0; }
+    heldJugs.clear();
+    for (const actor of api.actors) { actor.drinking = 0; actor.drinkBlend = 0; }
     Object.assign(inventory, { jug: 1, grenade: 1, sticky: 0, ice: 0, smoke: 1 });
+    for (const actor of api.actors) if (!actor.player) loadout(actor);
     api.setStatus('frozen', false);
     api.setStatus('smoke', false);
     notifyInventory();
   }
 
   notifyInventory();
-  return { inventory, update, reset, useItem, give, onElimination, smokeBlocks, freezeActor, spawnPickup, pickups, smokes };
+  for (const actor of api.actors) if (!actor.player) loadout(actor);
+  return { inventory, inventoryOf, update, reset, useItem, useFor, give, loadout, onElimination, smokeBlocks, freezeActor, spawnPickup, pickups, smokes };
 }
