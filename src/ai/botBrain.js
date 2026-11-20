@@ -380,16 +380,16 @@ export function createBotBrain(api) {
     if (canMoveFancy) {
       if (actor.hitTimer > 0.18 && Math.random() < 0.5) jump(actor, 8.0);
       else if (ai.jumpTimer <= 0) {
-        if (mode === 'fight' && enemy && distance < 22 && Math.random() < 0.6) jump(actor, rand(7.6, 8.4));
+        if (mode === 'fight' && enemy && distance < 22 && Math.random() < 0.42) jump(actor, rand(7.6, 8.4));
         else if (actor.sprinting && Math.random() < 0.12) jump(actor, 8.2);
         ai.jumpTimer = mode === 'fight' ? rand(0.8, 2.4) : rand(2.5, 6);
       }
     }
     if (canMoveFancy && ai.slideCd <= 0 && desired) {
       const planarNow = Math.hypot(actor.velocity.x, actor.velocity.z);
-      if (mode === 'fight' && enemy && distance > 6 && distance < 17 && planarNow > 4 && Math.random() < 0.5) {
+      if (mode === 'fight' && enemy && distance > 6 && distance < 17 && planarNow > 4 && Math.random() < 0.32) {
         startSlide(actor, desired);
-        ai.slideCd = rand(3.2, 6);
+        ai.slideCd = rand(4, 8);
       } else if (actor.sprinting && planarNow > 10 && Math.random() < 0.35) {
         startSlide(actor, actor.velocity);
         ai.slideCd = rand(3.5, 7);
