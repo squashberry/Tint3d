@@ -143,7 +143,7 @@ export class UmbrellaGlider {
 
     // frame: rib ribbons + stretchers
     const segs = 7;
-    const nF = RIBS * (segs + 1) * 2 + RIBS * 2;
+    const nF = RIBS * (segs + 1) * 2 + RIBS * 4;
     this.fPos = new Float32Array(nF * 3);
     const fIdx = [];
     let base = 0;
@@ -157,7 +157,7 @@ export class UmbrellaGlider {
     for (let k = 0; k < RIBS; k++) { fIdx.push(base, base + 1, base + 2, base + 1, base + 3, base + 2); base += 2 + 2; }
     const fg = new THREE.BufferGeometry();
     fg.setAttribute('position', new THREE.BufferAttribute(this.fPos, 3).setUsage(THREE.DynamicDrawUsage));
-    fg.setIndex(fIdx.filter((v) => v < nF));
+    fg.setIndex(fIdx);
     fg.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, -1, 0), 6);
     this.frameGeo = fg;
     this.frameMat = new THREE.MeshStandardMaterial({ color: 0x8e98a6, roughness: 0.35, metalness: 0.85, side: THREE.DoubleSide });
@@ -203,7 +203,7 @@ export class UmbrellaGlider {
     }
     this.canopyGeo.attributes.color.needsUpdate = true;
     this.gripGlow.material.color.set(c.glow);
-    this.tipMat.color.set(c.glow);
+    if (this.tipMat) this.tipMat.color.set(c.glow);
   }
 
   _buildAnchors() {

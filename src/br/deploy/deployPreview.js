@@ -21,7 +21,7 @@ window.__ifx = exp;
 exp.init((m) => { msg.textContent = m; }).then(() => {
   document.getElementById('loading').style.display = 'none';
   exp.start();
-}).catch((e) => { msg.textContent = 'ERROR: ' + e.message; console.error(e); });
+}).catch((e) => { msg.textContent = 'ERROR: ' + e.message; console.error(e && e.stack ? e.stack : e); });
 
 // ---------------------------------------------------------------- debug controls
 let free = false;

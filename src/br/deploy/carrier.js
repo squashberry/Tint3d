@@ -560,7 +560,9 @@ export class InkforgeCarrier {
     // windsock
     const pole = new MeshBuilder();
     pole.cyl(0, 0, 0, 0.12, 7, 0xd7dde4, 6);
-    this.group.add(Object.assign(new THREE.Mesh(this._geo(pole), this.mat.metal), { position: new THREE.Vector3(150, D, 40) }));
+    const poleMesh = new THREE.Mesh(this._geo(pole), this.mat.metal);
+    poleMesh.position.set(150, D, 40);
+    this.group.add(poleMesh);
     const sockB = new MeshBuilder();
     for (let k = 0; k < 4; k++) sockB.cyl(k * 0.9, -0.6 + k * 0.0, 0, 0.7 - k * 0.12, 0.9, k & 1 ? 0xffffff : 0xff7a2e, 8, 0.6 - k * 0.12);
     const sock = new THREE.Mesh(this._geo(sockB), this.mat.matte);
