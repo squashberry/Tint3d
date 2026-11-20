@@ -49,3 +49,17 @@ body.touch-device .item-slot span { margin-top: 0; }
   body.touch-device .item-tray { bottom: calc(54px + 140px); }
   #mobile-controls .tbtn-run { bottom: 108px; }
 }
+
+
+/* ===== Landscape-only prompt + graphics button ===== */
+.rotate-overlay { display: none; position: fixed; inset: 0; z-index: 9999; place-items: center; text-align: center; color: #effbf4;
+  background: radial-gradient(circle at 50% 38%, #123846, #04121b 70%); }
+body.portrait .rotate-overlay { display: grid; }
+.rotate-card { display: grid; gap: 10px; justify-items: center; padding: 24px; }
+.rotate-card strong { font: 900 30px/1 'Barlow Condensed', sans-serif; letter-spacing: .08em; color: #7ff3ff; }
+.rotate-card span { font: 800 18px 'Barlow Condensed', sans-serif; letter-spacing: .12em; }
+.rotate-card small { font: 700 11px 'Barlow Condensed', sans-serif; letter-spacing: .2em; opacity: .6; }
+.phone-icon { width: 58px; height: 98px; border: 4px solid #7ff3ff; border-radius: 14px; position: relative; animation: phone-turn 2.2s ease-in-out infinite; box-shadow: 0 0 24px rgba(32,216,233,.4); }
+.phone-icon i { position: absolute; left: 50%; bottom: 6px; width: 16px; height: 4px; margin-left: -8px; border-radius: 2px; background: #7ff3ff; }
+@keyframes phone-turn { 0%, 15% { transform: rotate(0); } 55%, 100% { transform: rotate(-90deg); } }
+.gfx-button { width: auto !important; padding: 0 10px; font: 800 11px 'Barlow Condensed', sans-serif; letter-spacing: .08em; white-space: nowrap; }

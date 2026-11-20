@@ -375,6 +375,18 @@ export function createBotBrain(api) {
     if (diving) { speed = staying ? 0 : 12.4; actor.sprinting = false; }
     if (actor.drinking > 0) { speed = Math.min(speed, 3.4); actor.sprinting = false; }
 
+    // ---- climbing: jump up onto ledges, crates, platforms and tower ramps ------------------------
+    if (grounded && !diving && !actor.sliding && !(actor.drinking > 0) && ai.index < ai.path.length) {
+      const next = ai.path[ai.index];
+      if (next.jump) {
+        const distanceToLedge = Math.hypot(next.x - actor.position.x, next.z - actor.position.z);
+        if (distanceToLedge < 2.3) {
+          jump(actor, Math.sqrt(2 * 20.5 * (Math.max(0.4, next.h - actor.position.y) + 0.45)));
+          ai.jumpTimer = 0.9;
+        }
+      }
+    }
+
     // ---- dodge: jump, slide, dash ------------------------------------------------------------
     const canMoveFancy = grounded && !diving && !(actor.drinking > 0) && !actor.sliding;
     if (canMoveFancy) {

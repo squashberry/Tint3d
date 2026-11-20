@@ -6,6 +6,7 @@ import { createOperatorGroup, attachRigid } from './operators/index.js';
 import { WEAPONS, BOT_WEAPONS } from './gameplay/weapons.js';
 import { createItems, ITEM_ORDER } from './gameplay/items.js';
 import { createPixelBurst } from './gameplay/burst.js';
+import { QualityManager, TIER_LABEL } from './graphics/quality.js';
 import { NavGrid } from './ai/nav.js';
 import { createBotBrain } from './ai/botBrain.js';
 
@@ -152,6 +153,8 @@ sun.shadow.camera.updateProjectionMatrix();
 scene.add(sun);
 scene.add(sun.target);
 const sunOffset = new THREE.Vector3(-13, 25, 11);
+let fxScale = 1;
+const quality = new QualityManager({ renderer, scene, camera, sun, isTouch, onFx: (value) => { fxScale = value; } });
 const fillLight = new THREE.PointLight(0x42e7ef, 29, 42, 2);
 fillLight.position.set(-12, 8, -5);
 scene.add(fillLight);
@@ -2227,7 +2230,7 @@ function spawnSplash(position, team, groundOverride = null) {
   scene.add(ring);
   particles.push({ mesh: ring, life: 0.40, maxLife: 0.40, ring: true, material: ringMaterial });
 
-  for (let i = 0; i < 12; i++) {
+  for (let i = 0, dots = Math.max(4, Math.round(12 * fxScale)); i < dots; i++) {
     const dot = mesh(shared.sphere, projectileMaterials[team], scene, position.x, ground + 0.10, position.z);
     dot.layers.disable(1);
     const angle = Math.random() * Math.PI * 2;
@@ -2235,7 +2238,7 @@ function spawnSplash(position, team, groundOverride = null) {
     dot.scale.set(scale * (0.95 + Math.random() * 0.6), scale * 1.18, scale * (0.95 + Math.random() * 0.6));
     dot.rotation.z = angle;
     particles.push({
-      mesh: dot, life: 0.34 + Math.random() * 0.25, maxLife: 0.60, groundY: ground,
+      mesh: dot, life: 0.34 + Math.random() * 0.25, maxLife: 0.60, groundY: ground, team,
       velocity: new THREE.Vector3(
         Math.cos(angle) * (1.8 + Math.random() * 3.0),
         1.6 + Math.random() * 2.6,
@@ -2245,7 +2248,8 @@ function spawnSplash(position, team, groundOverride = null) {
   }
 }
 function spawnMotionSpray(actor, count = 2, strength = 0.7) {
-  if (particles.length > 118) return;
+  if (particles.length > 118 * Math.max(0.6, fxScale)) return;
+  count = Math.max(1, Math.round(count * fxScale));
   const surface = actorSurfaceHeight(actor, actor.position.x, actor.position.z);
   const movement = actor.velocity.clone().setY(0);
   if (movement.lengthSq() < 0.04) return;
@@ -2333,6 +2337,11 @@ function updateParticles(delta) {
           p.velocity.set(0, 0, 0);
           p.settled = true;
           p.life = Math.min(p.life, 0.22);
+          // Droplets leave tiny satellite splats behind, like real flicked paint.
+          if (p.team && !p.painted && fxScale >= 0.75 && Math.random() < 0.4) {
+            p.painted = true;
+            paintAt(new THREE.Vector3(p.mesh.position.x, 0, p.mesh.position.z), p.team, 0.32 + Math.random() * 0.3, true);
+          }
         }
       }
       if (p.settled) {
@@ -2749,7 +2758,7 @@ function burstActor(actor, source) {
     push = new THREE.Vector3(actor.position.x - source.position.x, 0, actor.position.z - source.position.z);
     if (push.lengthSq() > 0.01) push.normalize(); else push = null;
   }
-  pixelBurst.spawn(actor.position, palette, { count: 190, push, floorAt: paintSurfaceHeight });
+  pixelBurst.spawn(actor.position, palette, { count: Math.round(190 * Math.max(0.5, fxScale)), push, floorAt: paintSurfaceHeight });
   spawnHitBurst(new THREE.Vector3(actor.position.x, actor.position.y + 1.0, actor.position.z), actor.team, 2.2);
   playPop(1.6);
   if (camera.position.distanceTo(actor.position) < 20) cameraShake = Math.max(cameraShake, 0.14);
@@ -2787,11 +2796,9 @@ function damageActor(actor, amount, source) {
     actor.velocity.addScaledVector(direction, 3.2);
     actor.group.visible = true;
     if (actor.shadow) actor.shadow.visible = true;
-    if (!actor.player) {
-      // Bots pop into pixels; the skeletal death clip is kept for the player.
-      actor.ragdollState = null;
-      burstActor(actor, source);
-    }
+    // Everyone pops into pixels (no skeletal death clip any more).
+    actor.ragdollState = null;
+    burstActor(actor, source);
     if (source && source.player) {
       source.eliminations++;
       totalEliminations++;
@@ -3466,10 +3473,22 @@ const items = createItems({
 setWeapon(player, 'pulse');
 for (const bot of [...blueBots, ...orangeBots]) setWeapon(bot, BOT_WEAPONS[bot.variation % BOT_WEAPONS.length]);
 
+// Surface a bot could stand on: the ground, ramps, or the top of a low solid (crates, cover, platforms).
+function standHeight(x, z) {
+  let height = groundHeight(x, z);
+  for (const box of solidBounds) {
+    if (box.maxY <= height + 0.05 || box.maxY > height + 3.3 || box.minY > height + 0.6) continue;
+    const inside = box.shape === 'circle'
+      ? (x - box.x) ** 2 + (z - box.z) ** 2 < box.radius ** 2
+      : x > box.minX && x < box.maxX && z > box.minZ && z < box.maxZ;
+    if (inside && box.maxY > height) height = box.maxY;
+  }
+  return height;
+}
 const botNav = new NavGrid({
   half: HALF,
   cell: 1.5,
-  heightAt: (x, z) => groundHeight(x, z),
+  heightAt: (x, z) => standHeight(x, z),
   isWalkable: (x, z, h) => !isBlockedAt(x, z, h, 0.62)
 });
 const botBrain = createBotBrain({
@@ -3713,6 +3732,7 @@ function resetMatch() {
   startGame();
 }
 function startGame() {
+  lockLandscape();
   if (introActive || gameStarted) return;
   sprintLocked = false;
   sprintWasRequested = false;
@@ -4019,7 +4039,7 @@ $('btn-dash').addEventListener('pointerdown', (event) => {
 
 function animate() {
   requestAnimationFrame(animate);
-  const delta = Math.min(clock.getDelta(), 0.04);
+  const delta = document.body.classList.contains('portrait') ? 0 : Math.min(clock.getDelta(), 0.04);
   if (introActive) {
     updateMatchIntro(delta);
   }
@@ -4063,13 +4083,38 @@ function animate() {
   sun.target.position.set(Math.round(player.position.x / texel) * texel, 0, Math.round(player.position.z / texel) * texel);
   sun.position.copy(sun.target.position).add(sunOffset);
   sun.target.updateMatrixWorld();
-  renderer.render(scene, camera);
+  quality.update(player.position);
+  quality.render();
+}
+const rotateOverlay = document.getElementById('rotate-overlay');
+function checkOrientation() {
+  const portrait = isTouch && innerHeight > innerWidth * 1.02;
+  document.body.classList.toggle('portrait', portrait);
+  return portrait;
+}
+async function lockLandscape() {
+  if (!isTouch) return;
+  try {
+    if (document.documentElement.requestFullscreen && !document.fullscreenElement) await document.documentElement.requestFullscreen({ navigationUI: 'hide' });
+    await screen.orientation?.lock?.('landscape');
+  } catch { /* Orientation lock is best effort; the rotate prompt covers the rest. */ }
+}
+addEventListener('orientationchange', checkOrientation);
+checkOrientation();
+const gfxButton = document.getElementById('quality-toggle');
+if (gfxButton) {
+  gfxButton.textContent = 'GFX ' + quality.label;
+  gfxButton.addEventListener('click', () => {
+    const label = quality.cyclePreference();
+    gfxButton.textContent = 'GFX ' + label;
+    showToast('GRAPHICS  /  ' + label);
+  });
 }
 function onResize() {
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
-  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, isTouch ? 1.15 : 1.4));
-  renderer.setSize(innerWidth, innerHeight);
+  quality.resize(innerWidth, innerHeight);
+  checkOrientation();
 }
 addEventListener('resize', onResize);
 updateScore();

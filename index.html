@@ -9,6 +9,7 @@
   </head>
   <body>
     <main id="game-root">
+      <div class="rotate-overlay" id="rotate-overlay" role="alert"><div class="rotate-card"><div class="phone-icon"><i></i></div><strong>ROTATE YOUR PHONE</strong><span>to play Tint3d</span><small>LANDSCAPE MODE ONLY</small></div></div>
       <div id="game-stage" aria-label="Tint3d 3D arena"></div>
 
       <header class="topbar">
@@ -19,6 +20,7 @@
         <div class="stage-label"><i></i><span>BREAKWATER</span><b>SECTOR 01</b></div>
         <div class="top-actions">
           <span class="live-tag">LOCAL MATCH</span>
+          <button class="icon-button gfx-button" id="quality-toggle" aria-label="Graphics quality" title="Graphics quality: auto or force a tier">GFX AUTO</button>
           <button class="icon-button" id="sound-toggle" aria-label="Toggle sound" title="Toggle sound">♫</button>
         </div>
       </header>
