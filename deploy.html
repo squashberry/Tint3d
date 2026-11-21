@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>INKFORGE — Battle Royale deployment preview</title>
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #0a131b; font-family: "Rajdhani", "Bahnschrift", system-ui, sans-serif; }
+    canvas#view { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+    #loading { position: fixed; inset: 0; z-index: 50; display: grid; place-content: center; text-align: center; background: radial-gradient(circle at 50% 40%, #12384a, #060d13); color: #e9f6fb; letter-spacing: .4em; text-transform: uppercase; }
+    #loading b { font-size: clamp(28px, 6vw, 64px); letter-spacing: .25em; color: #20d8e9; }
+    #loading small { display: block; margin-top: 14px; color: #ff7652; letter-spacing: .3em; }
+    #dbg { position: fixed; right: 10px; bottom: 10px; z-index: 30; font: 11px/1.5 ui-monospace, Menlo, monospace; color: #9fdde6; background: rgba(5,12,18,.6); padding: 6px 9px; border-radius: 6px; text-align: right; }
+  </style>
+</head>
+<body>
+  <canvas id="view"></canvas>
+  <div id="loading"><b>INKFORGE</b><small id="lmsg">INITIALISING</small></div>
+  <div id="dbg">SPACE pause · [ ] speed · N/P phase · F free-cam · H HUD · R restart</div>
+  <script type="module" src="/src/br/deploy/deployPreview.js"></script>
+</body>
+</html>
