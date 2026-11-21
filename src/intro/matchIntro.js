@@ -266,12 +266,14 @@ export class MatchIntro {
       this.audio.ready();
       this.setCenter('GET READY!', 'ready');
     });
-    const blend = easeInOut(smooth(T.showdownEnd, T.showdownEnd + 0.8, t));
-    api.camera.position.lerpVectors(this.readyFrom.pos, this.gameplay.pos, blend);
-    api.camera.quaternion.slerpQuaternions(this.readyFrom.quat, this.gameplay.quat, blend);
-    const fov = THREE.MathUtils.lerp(this.readyFrom.fov, this.gameplay.fov, blend);
-    if (Math.abs(api.camera.fov - fov) > 0.01) { api.camera.fov = fov; api.camera.updateProjectionMatrix(); }
-    this.pose.pos.copy(api.camera.position);
+    if (!this.went) {
+      const blend = easeInOut(smooth(T.showdownEnd, T.showdownEnd + 0.8, t));
+      api.camera.position.lerpVectors(this.readyFrom.pos, this.gameplay.pos, blend);
+      api.camera.quaternion.slerpQuaternions(this.readyFrom.quat, this.gameplay.quat, blend);
+      const fov = THREE.MathUtils.lerp(this.readyFrom.fov, this.gameplay.fov, blend);
+      if (Math.abs(api.camera.fov - fov) > 0.01) { api.camera.fov = fov; api.camera.updateProjectionMatrix(); }
+      this.pose.pos.copy(api.camera.position);
+    }
     T.ticks.forEach((tickTime, i) => {
       if (t >= tickTime) this.once(`tick${i}`, () => { this.audio.tick(i); this.setCenter(String(3 - i), 'tick'); });
     });

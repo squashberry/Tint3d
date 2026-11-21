@@ -6,7 +6,8 @@ import { createOperatorGroup, attachRigid } from './operators/index.js';
 import { WEAPONS, BOT_WEAPONS } from './gameplay/weapons.js';
 import { createItems, ITEM_ORDER } from './gameplay/items.js';
 import { createPixelBurst } from './gameplay/burst.js';
-import { QualityManager, TIER_LABEL } from './graphics/quality.js';
+import { QualityManager } from './graphics/quality.js';
+import { MatchIntro } from './intro/matchIntro.js';
 import { NavGrid } from './ai/nav.js';
 import { createBotBrain } from './ai/botBrain.js';
 
@@ -3503,6 +3504,50 @@ const botBrain = createBotBrain({
   enemiesOf: (actor) => (actor.team === BLUE ? orangeTeam : blueTeam)
     .filter((other) => other.group.visible && other.respawn <= 0 && !other.ragdollState)
 });
+// ---- cinematic match intro ----------------------------------------------------------------
+const TEAM_INFO = {
+  [BLUE]: { name: 'CYAN', color: '#20d8e9' },
+  [ORANGE]: { name: 'CORAL', color: '#ff7652' }
+};
+const CALLSIGNS = ['ZAPPY', 'MOCHI', 'INKY', 'SPLAT', 'DOODLE', 'PIXEL', 'BLOTCH', 'RIPPLE', 'TINTY', 'GLOOP', 'SQUISH', 'DABBER'];
+{
+  let storedName = '';
+  try { storedName = (localStorage.getItem('tint3d.name') || '').trim().toUpperCase().slice(0, 12); } catch { /* optional */ }
+  player.displayName = storedName || 'YOU';
+  [...blueBots, ...orangeBots].forEach((bot, index) => { bot.displayName = CALLSIGNS[index % CALLSIGNS.length]; });
+}
+function getGameplayPose() {
+  const keep = { p: camera.position.clone(), q: camera.quaternion.clone(), fov: camera.fov, shake: cameraShake };
+  cameraShake = 0;
+  updateCamera(10);
+  const pose = { pos: camera.position.clone(), quat: camera.quaternion.clone(), fov: camera.fov };
+  camera.position.copy(keep.p);
+  camera.quaternion.copy(keep.q);
+  camera.fov = keep.fov;
+  camera.updateProjectionMatrix();
+  cameraShake = keep.shake;
+  return pose;
+}
+const matchIntro = new MatchIntro({
+  renderer, camera, actors, player, BLUE, ORANGE, HALF, teamInfo: TEAM_INFO, authoritativeClock: false,
+  animateActor, fxScale: () => fxScale, spawnMotionSpray,
+  holster: (actor) => setWeaponHolstered(actor, false, true),
+  resolveCamera: resolveCameraCollision,
+  getGameplayPose,
+  splash: (actor) => {
+    const floor = actorSurfaceHeight(actor, actor.position.x, actor.position.z);
+    spawnSplash(new THREE.Vector3(actor.position.x, floor, actor.position.z), actor.team, floor);
+  },
+  shake: (amount) => { cameraShake = Math.max(cameraShake, amount); },
+  getAudioContext: () => { audioContext ||= new AudioContext(); if (audioContext.state === 'suspended') audioContext.resume(); return audioContext; },
+  isSoundOn: () => soundOn,
+  onGo: () => {
+    lastPlayerPaintPosition = new THREE.Vector3(player.position.x, 0, player.position.z);
+    introActive = false;
+    gameStarted = true;
+  }
+});
+
 function updateBots(delta) {
   for (const actor of [...blueBots, ...orangeBots]) {
     if (actor.respawn > 0) {
@@ -3748,34 +3793,17 @@ function startGame() {
   ui.pause.classList.add('hidden');
   ui.result.classList.add('hidden');
 
-  // Stage the actual 3D crew in two facing lines for the briefing camera.
-  // Their real spawn locations are restored when the countdown reaches zero.
-  introSavedActors = actors.map((actor) => ({
-    actor,
-    position: actor.position.clone(),
-    rotationY: actor.group.rotation.y
-  }));
-  const lineupX = [-8, -4, 0, 4, 8];
-  blueTeam.forEach((actor, index) => {
-    actor.position.set(lineupX[index], 0, 8.4);
+  // The cinematic intro runs on the real characters at their real spawn points.
+  introSavedActors = [];
+  yaw = 0;
+  pitch = 0.2;
+  for (const actor of actors) {
     actor.velocity.set(0, 0, 0);
-    actor.group.position.copy(actor.position);
-    actor.group.rotation.set(0, Math.PI, 0);
     actor.group.visible = true;
-    resetCharacterPose(actor);
-  });
-  orangeTeam.forEach((actor, index) => {
-    actor.position.set(lineupX[index], 0, -8.4);
-    actor.velocity.set(0, 0, 0);
     actor.group.position.copy(actor.position);
-    actor.group.rotation.set(0, Math.PI, 0);
-    actor.group.visible = true;
-    resetCharacterPose(actor);
-  });
-
-  ui.introPhase.textContent = 'SQUAD ASSEMBLY';
-  ui.introCount.textContent = 'READY';
-  ui.introStatus.textContent = 'YOUR CREW IS ENTERING THE FIELD';
+  }
+  ui.intro.classList.add('hidden');
+  matchIntro.begin();
   if (!isTouch && renderer.domElement.requestPointerLock) {
     try {
       const request = renderer.domElement.requestPointerLock();
@@ -4040,9 +4068,7 @@ $('btn-dash').addEventListener('pointerdown', (event) => {
 function animate() {
   requestAnimationFrame(animate);
   const delta = document.body.classList.contains('portrait') ? 0 : Math.min(clock.getDelta(), 0.04);
-  if (introActive) {
-    updateMatchIntro(delta);
-  }
+  matchIntro.update(delta);
   if (gameStarted && !paused && !ended) {
     timeLeft -= delta;
     ui.timer.textContent = formatTime(timeLeft);
@@ -4056,8 +4082,7 @@ function animate() {
     updateProjectiles(delta);
     if (timeLeft <= 0) finishMatch();
   } else {
-    if (introActive) updateIntroCamera(delta);
-    else updateCamera(delta);
+    if (!introActive) updateCamera(delta);
     if (!paused) updateProjectiles(delta);
   }
   updateParticles(delta);
