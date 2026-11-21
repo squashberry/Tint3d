@@ -9,6 +9,7 @@
   </head>
   <body>
     <main id="game-root">
+      <div class="rotate-overlay" id="rotate-overlay" role="alert"><div class="rotate-card"><div class="phone-icon"><i></i></div><strong>ROTATE YOUR PHONE</strong><span>to play Tint3d</span><small>LANDSCAPE MODE ONLY</small></div></div>
       <div id="game-stage" aria-label="Tint3d 3D arena"></div>
 
       <header class="topbar">
@@ -19,6 +20,7 @@
         <div class="stage-label"><i></i><span>BREAKWATER</span><b>SECTOR 01</b></div>
         <div class="top-actions">
           <span class="live-tag">LOCAL MATCH</span>
+          <button class="icon-button gfx-button" id="quality-toggle" aria-label="Graphics quality" title="Graphics quality: auto or force a tier">GFX AUTO</button>
           <button class="icon-button" id="sound-toggle" aria-label="Toggle sound" title="Toggle sound">♫</button>
         </div>
       </header>
@@ -133,24 +135,44 @@
           <div class="weapon-symbol">✳</div>
           <div><span>PRIMARY / 01</span><strong>PULSE SPRAYER</strong><small>RAPID · MID RANGE</small></div>
         </div>
-        <div class="control-hint" id="control-hint">WASD MOVE <b>·</b> SHIFT SPRINT <b>·</b> C SLIDE <b>·</b> Q FLOWLINE <b>·</b> SPACE JUMP</div>
+        <div class="control-hint" id="control-hint">WASD RUN <b>·</b> SHIFT SPRINT <b>·</b> E / RIGHT-CLICK DIVE <b>·</b> C SLIDE <b>·</b> Q DASH <b>·</b> SPACE JUMP <b>·</b> 1-5 ITEMS</div>
         <div class="player-meters">
           <div class="meter-row"><span>INK</span><div class="meter"><i id="ink-fill"></i></div><b id="ink-label">100</b></div>
           <div class="meter-row"><span>VITALS</span><div class="meter health-meter"><i id="health-fill"></i></div><b id="health-label">100</b></div>
-          <div class="meter-row flow-row"><span>FLOWLINE</span><div class="meter flow-meter"><i id="flow-fill"></i></div><b id="flow-label">READY</b></div>
+          <div class="meter-row weapon-row"><span>GUN</span><b id="weapon-label">PULSE SPRAYER</b></div>
+          <div class="meter-row flow-row"><span>DASH</span><div class="meter flow-meter"><i id="flow-fill"></i></div><b id="flow-label">READY</b></div>
         </div>
       </footer>
 
       <div class="mobile-controls" id="mobile-controls">
         <div class="joystick" id="joystick"><div class="joystick-knob" id="joystick-knob"></div></div>
-        <div class="mobile-actions">
-          <button id="flow-button" aria-label="Flowline boost" title="Flowline">⇢</button>
-          <button id="sprint-button" aria-label="Toggle sprint" aria-pressed="false" title="Lock sprint">RUN</button>
-          <button id="jump-button" aria-label="Jump" title="Jump">↑</button>
-          <button id="slide-button" aria-label="Slide" title="Slide">SLIDE</button>
-          <button id="fire-button" aria-label="Spray paint" title="Spray paint">✳</button>
+        <button class="tbtn tbtn-run" id="btn-run" aria-label="Lock auto-run" aria-pressed="false" title="Lock sprint forward">AUTO<br>RUN</button>
+        <div class="touch-cluster">
+          <button class="tbtn tbtn-slide" id="btn-slide" aria-label="Slide">SLIDE</button>
+          <button class="tbtn tbtn-jump" id="btn-jump" aria-label="Jump">JUMP</button>
+          <button class="tbtn tbtn-dash" id="btn-dash" aria-label="Dash">DASH</button>
+          <button class="tbtn tbtn-dive" id="btn-dive" aria-label="Ink dive (hold)">DIVE</button>
+          <button class="tbtn tbtn-fire" id="btn-fire" aria-label="Fire (drag to look)">FIRE</button>
         </div>
       </div>
+      <div class="item-tray" id="item-tray">
+        <button class="item-slot" data-item="jug"><b>1</b><span>JUG</span><i class="item-count">1</i></button>
+        <button class="item-slot" data-item="grenade"><b>2</b><span>NADE</span><i class="item-count">1</i></button>
+        <button class="item-slot" data-item="sticky"><b>3</b><span>STICKY</span><i class="item-count">0</i></button>
+        <button class="item-slot" data-item="ice"><b>4</b><span>ICE</span><i class="item-count">0</i></button>
+        <button class="item-slot" data-item="smoke"><b>5</b><span>SMOKE</span><i class="item-count">1</i></button>
+      </div>
+      <section class="cine hidden" id="cine" aria-hidden="true">
+        <div class="cine-bar top"></div><div class="cine-bar bottom"></div>
+        <div class="cine-tags" id="cine-tags"></div>
+        <div class="cine-banner" id="cine-banner"><span id="cine-banner-kicker"></span><strong id="cine-banner-title"></strong><small id="cine-banner-sub"></small></div>
+        <canvas class="cine-paint" id="cine-paint"></canvas>
+        <div class="cine-title" id="cine-title"><span id="cine-vs-left"></span><i>VS</i><span id="cine-vs-right"></span></div>
+        <div class="cine-center" id="cine-center"></div>
+        <div class="cine-fade" id="cine-fade"></div>
+        <button class="cine-skip" id="cine-skip" type="button">SKIP &#9656;</button>
+      </section>
+      <div class="status-overlay" id="status-overlay"><i class="frost"></i><i class="haze"></i></div>
       <div class="toast" id="toast">BREAKWATER / TRAINING YARD</div>
     </main>
     <script type="module" src="/src/main.js"></script>

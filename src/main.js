@@ -2,7 +2,12 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import './style.css';
-import { createOperatorGroup } from './operators/index.js';
+import { createOperatorGroup, attachRigid } from './operators/index.js';
+import { WEAPONS, BOT_WEAPONS } from './gameplay/weapons.js';
+import { createItems, ITEM_ORDER } from './gameplay/items.js';
+import { createPixelBurst } from './gameplay/burst.js';
+import { QualityManager } from './graphics/quality.js';
+import { MatchIntro } from './intro/matchIntro.js';
 import { NavGrid } from './ai/nav.js';
 import { createBotBrain } from './ai/botBrain.js';
 
@@ -22,7 +27,7 @@ const clamp = THREE.MathUtils.clamp;
 const root = document.querySelector('#game-stage');
 const $ = (id) => document.getElementById(id);
 const ui = {
-  start: $('start-screen'), intro: $('match-intro'), pause: $('pause-screen'), result: $('result-screen'),
+  start: $('start-screen'), weaponLabel: $('weapon-label'), intro: $('match-intro'), pause: $('pause-screen'), result: $('result-screen'),
   introPhase: $('match-intro-phase'), introCount: $('match-intro-count'), introStatus: $('match-intro-status'),
   introBlueRoster: $('intro-blue-roster'), introOrangeRoster: $('intro-orange-roster'),
   timer: $('timer'), blue: $('blue-score'), orange: $('orange-score'),
@@ -149,6 +154,8 @@ sun.shadow.camera.updateProjectionMatrix();
 scene.add(sun);
 scene.add(sun.target);
 const sunOffset = new THREE.Vector3(-13, 25, 11);
+let fxScale = 1;
+const quality = new QualityManager({ renderer, scene, camera, sun, isTouch, onFx: (value) => { fxScale = value; } });
 const fillLight = new THREE.PointLight(0x42e7ef, 29, 42, 2);
 fillLight.position.set(-12, 8, -5);
 scene.add(fillLight);
@@ -1775,7 +1782,9 @@ function moveOnGround(actor, dx, dz, radius = 0.46) {
   const surfaceY = actorSurfaceHeight(actor, actor.position.x, actor.position.z);
   // Keep air momentum, but settle onto the highest reachable solid surface.
   if (!actor.player) {
-    actor.position.y = surfaceY;
+    if (actor.grounded === false) actor.position.y = Math.max(actor.position.y, surfaceY);
+    else if (surfaceY < actor.position.y - 0.12) { actor.grounded = false; actor.verticalVelocity = Math.min(0, actor.verticalVelocity || 0); }
+    else actor.position.y = surfaceY;
   } else if (actor.grounded && surfaceY < actor.position.y - 0.12) {
     // Walking off a raised cover edge starts a real fall instead of snapping down.
     actor.grounded = false;
@@ -2222,7 +2231,7 @@ function spawnSplash(position, team, groundOverride = null) {
   scene.add(ring);
   particles.push({ mesh: ring, life: 0.40, maxLife: 0.40, ring: true, material: ringMaterial });
 
-  for (let i = 0; i < 12; i++) {
+  for (let i = 0, dots = Math.max(4, Math.round(12 * fxScale)); i < dots; i++) {
     const dot = mesh(shared.sphere, projectileMaterials[team], scene, position.x, ground + 0.10, position.z);
     dot.layers.disable(1);
     const angle = Math.random() * Math.PI * 2;
@@ -2230,7 +2239,7 @@ function spawnSplash(position, team, groundOverride = null) {
     dot.scale.set(scale * (0.95 + Math.random() * 0.6), scale * 1.18, scale * (0.95 + Math.random() * 0.6));
     dot.rotation.z = angle;
     particles.push({
-      mesh: dot, life: 0.34 + Math.random() * 0.25, maxLife: 0.60, groundY: ground,
+      mesh: dot, life: 0.34 + Math.random() * 0.25, maxLife: 0.60, groundY: ground, team,
       velocity: new THREE.Vector3(
         Math.cos(angle) * (1.8 + Math.random() * 3.0),
         1.6 + Math.random() * 2.6,
@@ -2240,7 +2249,8 @@ function spawnSplash(position, team, groundOverride = null) {
   }
 }
 function spawnMotionSpray(actor, count = 2, strength = 0.7) {
-  if (particles.length > 118) return;
+  if (particles.length > 118 * Math.max(0.6, fxScale)) return;
+  count = Math.max(1, Math.round(count * fxScale));
   const surface = actorSurfaceHeight(actor, actor.position.x, actor.position.z);
   const movement = actor.velocity.clone().setY(0);
   if (movement.lengthSq() < 0.04) return;
@@ -2328,6 +2338,11 @@ function updateParticles(delta) {
           p.velocity.set(0, 0, 0);
           p.settled = true;
           p.life = Math.min(p.life, 0.22);
+          // Droplets leave tiny satellite splats behind, like real flicked paint.
+          if (p.team && !p.painted && fxScale >= 0.75 && Math.random() < 0.4) {
+            p.painted = true;
+            paintAt(new THREE.Vector3(p.mesh.position.x, 0, p.mesh.position.z), p.team, 0.32 + Math.random() * 0.3, true);
+          }
         }
       }
       if (p.settled) {
@@ -2447,7 +2462,9 @@ function equipBlasterModel(actor) {
       node.castShadow = false;
       node.receiveShadow = false;
     });
+    c.weaponVisual.scale.set(1, 1, 1);
     c.weaponVisual.add(model);
+    c.weaponVisual.updateMatrixWorld(true);
     c.proceduralWeapon.visible = false;
     c.weapon.updateWorldMatrix(true, false);
     model.updateWorldMatrix(true, true);
@@ -2466,7 +2483,7 @@ function equipBlasterModel(actor) {
     c.weapon.userData.muzzleLocal = new THREE.Vector3((fit.min.x + fit.max.x) / 2, (fit.min.y + fit.max.y) / 2, fit.min.z - 0.018);
     c.flash.position.copy(c.weapon.userData.muzzleLocal);
     c.weaponFitBox = fit;
-    c.animator?.setWeaponFit(fit);
+    refreshWeaponFit(actor);
   }).catch((error) => console.warn('Tint3d is using its fallback blaster:', error));
 }
 actors.forEach((actor) => {
@@ -2521,6 +2538,9 @@ let crosshairHitTimer = 0;
 let crosshairFireTimer = 0;
 let jumpQueued = false;
 let jumpHeld = false;
+let diveHeld = false;
+let diveWarned = false;
+let firePointer = null;
 let sprintLocked = false;
 let sprintWasRequested = false;
 let slideQueued = false;
@@ -2593,16 +2613,16 @@ function muzzlePosition(actor) {
   }
   return actor.position.clone().add(new THREE.Vector3(0, 1.30, 0));
 }
-function spawnProjectile(origin, target, team, owner) {
+function spawnProjectile(origin, target, team, owner, spec = WEAPONS.pulse) {
   const shot = new THREE.Group();
   const core = new THREE.Mesh(projectileGeometry, projectileMaterials[team]);
-  core.scale.set(0.82, 0.82, 1.85);
+  core.scale.set(0.82 * spec.scale, 0.82 * spec.scale, 1.85 * Math.max(0.8, spec.scale));
   shot.add(core);
   const glow = new THREE.Mesh(
     projectileGeometry,
     new THREE.MeshBasicMaterial({ color: team === BLUE ? 0x77f5ff : 0xffbb91, transparent: true, opacity: 0.24, depthWrite: false })
   );
-  glow.scale.set(1.45, 1.45, 2.35);
+  glow.scale.set(1.45 * spec.scale, 1.45 * spec.scale, 2.35 * Math.max(0.8, spec.scale));
   shot.add(glow);
   const streak = new THREE.Mesh(projectileStreakGeometry, projectileStreakMaterials[team]);
   streak.rotation.x = Math.PI / 2;
@@ -2612,7 +2632,7 @@ function spawnProjectile(origin, target, team, owner) {
   scene.add(shot);
   const delta = target.clone().sub(origin);
   const distance = Math.max(1, delta.length());
-  const travel = clamp(distance / 38, 0.10, 0.90);
+  const travel = clamp(distance / spec.speed, 0.06, 1.2);
   const gravity = -1.65;
   const velocity = new THREE.Vector3(
     delta.x / travel,
@@ -2620,10 +2640,15 @@ function spawnProjectile(origin, target, team, owner) {
     delta.z / travel
   );
   shot.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), velocity.clone().normalize());
-  projectiles.push({ mesh: shot, velocity, gravity, life: 1.2, team, owner, radius: 0.38 });
+  projectiles.push({
+    mesh: shot, velocity, gravity, life: spec.life, team, owner, radius: 0.38 * Math.max(0.7, spec.scale * 0.8),
+    damage: spec.damage, paintRadius: spec.paintRadius, splash: spec.splash
+  });
 }
 function fireActor(actor, target) {
-  if (actor.fireCooldown > 0 || actor.ink < 4 || !actor.group.visible) return;
+  const spec = WEAPONS[actor.weaponType || 'pulse'];
+  if (actor.fireCooldown > 0 || actor.ink < spec.ink || !actor.group.visible) return;
+  if (actor.diving || actor.frozen > 0 || actor.drinking > 0) return;
   const character = actor.group.userData.character;
   const wasHolstered = !!character?.weaponHolstered;
   setWeaponHolstered(actor, false, !!(actor.player && wasHolstered));
@@ -2638,9 +2663,9 @@ function fireActor(actor, target) {
       animateActor(actor, gait, 0);
     }
   }
-  actor.fireCooldown = actor.player ? 0.105 : 0.82 + Math.random() * 0.48;
-  actor.ink = Math.max(0, actor.ink - (actor.player ? 3.7 : 3.2));
-  actor.recoil = actor.player ? 0.22 : 0.095;
+  actor.fireCooldown = actor.player ? spec.cooldown : spec.botCooldown * (0.8 + Math.random() * 0.5);
+  actor.ink = Math.max(0, actor.ink - spec.ink * (actor.player ? 1 : 0.86));
+  actor.recoil = (actor.player ? 0.22 : 0.095) * (spec.cooldown > 0.3 ? 2.2 : 1);
   actor.group.userData.shotTimer = 0.30;
   actor.group.userData.flashTimer = 0.075;
   actor.group.userData.flash.visible = true;
@@ -2653,7 +2678,16 @@ function fireActor(actor, target) {
   const muzzle = muzzlePosition(actor);
   const shotDirection = destination.clone().sub(muzzle).normalize();
   spawnMuzzleBurst(muzzle, shotDirection, actor.team);
-  spawnProjectile(muzzle, destination, actor.team, actor);
+  for (let pellet = 0; pellet < spec.pellets; pellet++) {
+    const aimPoint = destination.clone();
+    if (spec.spread > 0) {
+      const reach = muzzle.distanceTo(destination);
+      aimPoint.x += (Math.random() - 0.5) * spec.spread * reach * 2;
+      aimPoint.y += (Math.random() - 0.5) * spec.spread * reach;
+      aimPoint.z += (Math.random() - 0.5) * spec.spread * reach * 2;
+    }
+    spawnProjectile(muzzle, aimPoint, actor.team, actor, spec);
+  }
   if (actor.player) {
     cameraShake = Math.max(cameraShake, 0.048);
     cameraRecoil = Math.min(0.052, cameraRecoil + 0.009);
@@ -2693,6 +2727,13 @@ function respawnActor(actor) {
   actor.ink = 100;
   actor.respawn = 0;
   actor.ai = null;
+  actor.frozen = 0;
+  actor.sticky = 0;
+  actor.drinking = 0;
+  actor.diving = false;
+  actor.sliding = false;
+  actor.flow = 0;
+  if (!actor.player) { setWeapon(actor, BOT_WEAPONS[actor.variation % BOT_WEAPONS.length]); items.loadout(actor); }
   actor.invulnerable = 1.4;
   actor.group.visible = true;
   actor.group.position.copy(actor.position);
@@ -2709,16 +2750,38 @@ function respawnActor(actor) {
     lastPlayerPaintPosition = new THREE.Vector3(actor.position.x, 0, actor.position.z);
   }
 }
+const pixelBurst = createPixelBurst(scene);
+function burstActor(actor, source) {
+  const ink = actor.team === BLUE ? [0x20d8e9, 0x7cf0ff, 0x1692a8] : [0xff7652, 0xffb094, 0xc2492c];
+  const palette = [...ink, ...ink, 0x1c2a33, 0x2f4452, 0xf2f6f4, 0xd7a07a, 0x8a5a3a, 0x3a2a1f];
+  let push = null;
+  if (source?.position) {
+    push = new THREE.Vector3(actor.position.x - source.position.x, 0, actor.position.z - source.position.z);
+    if (push.lengthSq() > 0.01) push.normalize(); else push = null;
+  }
+  pixelBurst.spawn(actor.position, palette, { count: Math.round(190 * Math.max(0.5, fxScale)), push, floorAt: paintSurfaceHeight });
+  spawnHitBurst(new THREE.Vector3(actor.position.x, actor.position.y + 1.0, actor.position.z), actor.team, 2.2);
+  playPop(1.6);
+  if (camera.position.distanceTo(actor.position) < 20) cameraShake = Math.max(cameraShake, 0.14);
+  actor.group.visible = false;
+  if (actor.shadow) actor.shadow.visible = false;
+  if (actor.diveBlob) actor.diveBlob.visible = false;
+  actor.diving = false;
+  actor.sliding = false;
+}
 function damageActor(actor, amount, source) {
   if (actor.invulnerable > 0 || !actor.group.visible || actor.ragdollState) return;
   actor.health = Math.max(0, actor.health - amount);
   actor.hitTimer = 0.22;
+  actor.regenDelay = 3.2;
   if (actor.player) {
     updateInk();
     ui.hit.classList.add('visible');
     hitTimer = 0.18;
   }
   if (actor.health <= 0) {
+    items.onElimination(actor, source);
+    actor.diving = false;
     actor.respawn = actor.player ? 2.3 : 3.4;
     const direction = source ? actor.position.clone().sub(source.position) : new THREE.Vector3(Math.random() - 0.5, 0, Math.random() - 0.5);
     if (direction.lengthSq() < 0.001) direction.set(0, 0, 1);
@@ -2734,6 +2797,9 @@ function damageActor(actor, amount, source) {
     actor.velocity.addScaledVector(direction, 3.2);
     actor.group.visible = true;
     if (actor.shadow) actor.shadow.visible = true;
+    // Everyone pops into pixels (no skeletal death clip any more).
+    actor.ragdollState = null;
+    burstActor(actor, source);
     if (source && source.player) {
       source.eliminations++;
       totalEliminations++;
@@ -2741,6 +2807,15 @@ function damageActor(actor, amount, source) {
       showToast('CREW SPLAT  +1');
       playPop(1.4);
     }
+  }
+}
+function splashShot(pos, p, exclude) {
+  for (const actor of actors) {
+    if (actor === exclude || actor.team === p.team || !actor.group.visible || actor.ragdollState || actor.invulnerable > 0) continue;
+    const d = Math.hypot(actor.position.x - pos.x, actor.position.z - pos.z);
+    if (d > p.splash || Math.abs(actor.position.y + 1 - pos.y) > 2.4) continue;
+    damageActor(actor, p.damage * 0.5 * (1 - d / p.splash * 0.5) * (actor.player ? 0.61 : 1), p.owner);
+    spawnHitBurst(new THREE.Vector3(actor.position.x, actor.position.y + 1.0, actor.position.z), p.team, 0.8);
   }
 }
 function updateProjectiles(delta) {
@@ -2757,16 +2832,16 @@ function updateProjectiles(delta) {
     let hitActor = false;
     for (const actor of actors) {
       if (actor.team === p.team || actor === p.owner || !actor.group.visible || actor.invulnerable > 0 || actor.ragdollState) continue;
-      const center = new THREE.Vector3(actor.position.x, actor.position.y + 1.02, actor.position.z);
+      const center = new THREE.Vector3(actor.position.x, actor.position.y + (actor.diving ? 0.30 : 1.02), actor.position.z);
       const along = clamp(center.clone().sub(previous).dot(travel) / travelLengthSq, 0, 1);
       const closest = previous.clone().addScaledVector(travel, along);
       const dx = closest.x - center.x;
       const dy = closest.y - center.y;
       const dz = closest.z - center.z;
       const combinedRadius = 0.54 + p.radius * 0.42;
-      if (dx * dx + dz * dz < combinedRadius * combinedRadius && Math.abs(dy) < 0.94) {
+      if (dx * dx + dz * dz < combinedRadius * combinedRadius && Math.abs(dy) < (actor.diving ? 0.5 : 0.94)) {
         pos.copy(closest);
-        const damage = actor.player ? 22 : 36;
+        const damage = p.damage * (actor.player ? 0.61 : 1);
         const elimination = actor.health <= damage;
         damageActor(actor, damage, p.owner);
         spawnHitBurst(new THREE.Vector3(pos.x, actor.position.y + 1.05, pos.z), p.team, actor.player ? 1.25 : 1);
@@ -2778,7 +2853,8 @@ function updateProjectiles(delta) {
           cameraShake = Math.max(cameraShake, elimination ? 0.13 : 0.065);
           playPop(elimination ? 1.6 : 1.25);
         }
-        paintAt(new THREE.Vector3(pos.x, 0, pos.z), p.team, 1.72);
+        paintAt(new THREE.Vector3(pos.x, 0, pos.z), p.team, p.paintRadius ? p.paintRadius * 1.1 : 1.72);
+        if (p.splash > 0) splashShot(pos, p, actor);
         hitActor = true;
         break;
       }
@@ -2815,13 +2891,14 @@ function updateProjectiles(delta) {
       }
     }
     if (hitActor || hitWorld || hitFloor || Math.abs(pos.x) > HALF || Math.abs(pos.z) > HALF || p.life <= 0) {
+      if ((hitWorld || hitFloor) && p.splash > 0) splashShot(pos, p, null);
       if (!hitActor && Math.abs(pos.x) < HALF && Math.abs(pos.z) < HALF) {
         const wallFace = hitWorld ? paintableWalls.find((wall) =>
           pos.x >= wall.minX && pos.x <= wall.maxX &&
           pos.y >= wall.minY && pos.y <= wall.maxY &&
           Math.abs(pos.z - wall.faceZ) < 0.55
         ) : null;
-        paintAt(new THREE.Vector3(pos.x, wallFace ? pos.y : 0, pos.z), p.team, hitWorld ? 1.85 : (p.team === BLUE ? 1.55 : 1.45));
+        paintAt(new THREE.Vector3(pos.x, wallFace ? pos.y : 0, pos.z), p.team, p.paintRadius ? p.paintRadius * (hitWorld ? 1.1 : 1) : (hitWorld ? 1.85 : (p.team === BLUE ? 1.55 : 1.45)));
       }
       removeProjectile(i);
     }
@@ -2830,7 +2907,10 @@ function updateProjectiles(delta) {
 
 function movementInput() {
   const x = (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0) + joystick.x;
-  const y = (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0) - (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0) - joystick.y;
+  let y = (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0) - (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0) - joystick.y;
+  // Auto-run: a locked sprint keeps the player moving forward so only the view steers.
+  // Pulling the stick back (or pressing S) cancels it for that moment.
+  if (sprintLocked && joystick.y < 0.35 && !keys.has('KeyS') && !keys.has('ArrowDown')) y = Math.max(y, 1);
   const vector = new THREE.Vector2(x, y);
   if (vector.length() > 1) vector.normalize();
   return vector;
@@ -2875,10 +2955,212 @@ function paintPlayerTrail(position) {
   }
   lastPlayerPaintPosition.copy(current);
 }
+// ---------------------------------------------------------------------------
+// Ink dive: sink into friendly ink as a glossy ink slick, surf fast, refill, leave a trail.
+// ---------------------------------------------------------------------------
+const diveMaterials = {};
+const diveBodyGeometry = new THREE.SphereGeometry(1, 20, 14);
+const diveTailGeometry = new THREE.ConeGeometry(1, 1, 14);
+const diveGlintMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
+function diveMaterial(team) {
+  if (!diveMaterials[team]) {
+    const color = team === BLUE ? 0x20d8e9 : 0xff7652;
+    diveMaterials[team] = new THREE.MeshPhysicalMaterial({
+      color, emissive: color, emissiveIntensity: 0.28, roughness: 0.12, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.06
+    });
+  }
+  return diveMaterials[team];
+}
+function ensureDiveBlob(actor) {
+  if (actor.diveBlob) return actor.diveBlob;
+  const blob = new THREE.Group();
+  const body = new THREE.Mesh(diveBodyGeometry, diveMaterial(actor.team));
+  body.scale.set(0.46, 0.24, 0.62);
+  body.position.y = 0.22;
+  const tail = new THREE.Mesh(diveTailGeometry, diveMaterial(actor.team));
+  tail.rotation.x = Math.PI / 2;
+  tail.scale.set(0.3, 0.9, 0.12);
+  tail.position.set(0, 0.17, 0.78);
+  const glints = [-1, 1].map((side) => {
+    const glint = new THREE.Mesh(diveBodyGeometry, diveGlintMaterial);
+    glint.scale.setScalar(0.045);
+    glint.position.set(side * 0.14, 0.34, -0.34);
+    return glint;
+  });
+  blob.add(body, tail, ...glints);
+  blob.visible = false;
+  blob.traverse((node) => { if (node.isMesh) { node.frustumCulled = false; if (actor.player) node.layers.set(0); else node.layers.enable(1); } });
+  scene.add(blob);
+  actor.diveBlob = blob;
+  return blob;
+}
+function updateDiveVisual(actor, delta) {
+  const t = actor.diveBlend = THREE.MathUtils.damp(actor.diveBlend || 0, actor.diving ? 1 : 0, 13, delta);
+  const c = actor.group.userData.character;
+  const operator = c?.operator;
+  if (operator) {
+    operator.modelRoot.visible = t < 0.5;
+    c.weapon.visible = t < 0.15;
+  }
+  if (t <= 0.04 && !actor.diveBlob) return;
+  const blob = ensureDiveBlob(actor);
+  blob.visible = t > 0.04 && actor.group.visible;
+  if (!blob.visible) return;
+  blob.position.set(actor.position.x, actor.position.y + 0.02, actor.position.z);
+  const speed = Math.hypot(actor.velocity.x, actor.velocity.z);
+  if (speed > 0.8) {
+    const wanted = Math.atan2(-actor.velocity.x, -actor.velocity.z);
+    const turn = Math.atan2(Math.sin(wanted - blob.rotation.y), Math.cos(wanted - blob.rotation.y));
+    blob.rotation.y += turn * (1 - Math.exp(-14 * delta));
+  }
+  const wobble = 1 + Math.sin(performance.now() * 0.016 + actor.team) * 0.06 * Math.min(1, speed / 6);
+  blob.scale.set(t * wobble, t / wobble, t * (1 + Math.min(speed, 14) * 0.012));
+}
+function updateDive(actor, delta, wantDive) {
+  const grounded = actor.grounded !== false;
+  const friendly = hasFriendlyInkUnderfoot(actor.position.x, actor.position.z, actor.team);
+  if (!actor.diving) {
+    if (wantDive && friendly && grounded && !actor.ragdollState && !(actor.frozen > 0)) {
+      actor.diving = true;
+      actor.sliding = false;
+      actor.sprinting = false;
+      const floor = actorSurfaceHeight(actor, actor.position.x, actor.position.z);
+      spawnSplash(new THREE.Vector3(actor.position.x, floor, actor.position.z), actor.team, floor);
+      spawnHitBurst(new THREE.Vector3(actor.position.x, floor + 0.2, actor.position.z), actor.team, 0.9);
+      if (actor.player) { playPop(0.9); showToast('INK DIVE  /  HOLD TO SURF'); }
+    } else if (wantDive && actor.player && !friendly && !diveWarned) {
+      diveWarned = true;
+      showToast('DIVE NEEDS YOUR INK UNDERFOOT');
+    }
+  } else if (!wantDive || !friendly || !grounded || actor.ragdollState) {
+    actor.diving = false;
+    const floor = actorSurfaceHeight(actor, actor.position.x, actor.position.z);
+    spawnSplash(new THREE.Vector3(actor.position.x, floor, actor.position.z), actor.team, floor);
+    spawnMotionSpray(actor, 6, 1.5);
+    if (actor.player) { playPop(0.7); cameraShake = Math.max(cameraShake, 0.06); }
+  }
+  if (!wantDive) diveWarned = false;
+  updateDiveVisual(actor, delta);
+  return actor.diving;
+}
+function diveSurfTick(actor, delta) {
+  actor.ink = Math.min(100, actor.ink + 46 * delta);
+  actor.diveTrailTimer = (actor.diveTrailTimer || 0) - delta;
+  const speed = Math.hypot(actor.velocity.x, actor.velocity.z);
+  if (speed > 1.5 && actor.diveTrailTimer <= 0) {
+    actor.diveTrailTimer = 0.085;
+    paintAt(new THREE.Vector3(actor.position.x, 0, actor.position.z), actor.team, 1.55, true);
+    spawnMotionSpray(actor, 3, 1.5);
+  }
+  if (actor.player) updateInk();
+}
+
+// Enemy ink slows and slowly hurts; own ink and diving heal. Frozen / sticky timers live here too.
+function updateVitals(actor, delta) {
+  actor.frozen = Math.max(0, (actor.frozen || 0) - delta);
+  actor.sticky = Math.max(0, (actor.sticky || 0) - delta);
+  actor.regenDelay = Math.max(0, (actor.regenDelay || 0) - delta);
+  const x = actor.position.x;
+  const z = actor.position.z;
+  const friendly = hasFriendlyInkUnderfoot(x, z, actor.team);
+  const owner = ownerAt(x, z);
+  const enemyInk = !friendly && owner !== 0 && owner !== actor.team && actor.grounded !== false && !actor.diving;
+  actor.inEnemyInk = enemyInk;
+  actor.speedFactor = (enemyInk ? 0.55 : 1) * (actor.sticky > 0 ? 0.4 : 1);
+  if (enemyInk && actor.health > 16) {
+    actor.health = Math.max(16, actor.health - 5 * delta);
+    actor.regenDelay = 1.5;
+  } else if (actor.regenDelay <= 0 && actor.health < 100) {
+    actor.health = Math.min(100, actor.health + (friendly || actor.diving ? 11 : 3.5) * delta);
+  }
+  if (actor.player) {
+    if (enemyInk && !actor.enemyInkWarned) { actor.enemyInkWarned = true; showToast('ENEMY INK  /  SLOWED AND BURNING'); }
+    if (!enemyInk) actor.enemyInkWarned = false;
+  }
+}
+
+// Weapons: each archetype changes the weapon's size, the shot pattern and the paint spread.
+function refreshWeaponFit(actor) {
+  const c = actor.group.userData.character;
+  if (!c) return;
+  const spec = WEAPONS[actor.weaponType || 'pulse'];
+  const [sx, sy, sz] = spec.look;
+  c.weaponVisual.scale.set(sx, sy, sz);
+  const base = c.weaponFitBox;
+  if (!base) return;
+  const fit = new THREE.Box3(
+    new THREE.Vector3(base.min.x * sx, base.min.y * sy, base.min.z * sz),
+    new THREE.Vector3(base.max.x * sx, base.max.y * sy, base.max.z * sz)
+  );
+  c.weapon.userData.muzzleLocal = new THREE.Vector3((fit.min.x + fit.max.x) / 2, (fit.min.y + fit.max.y) / 2, fit.min.z - 0.018);
+  c.flash.position.copy(c.weapon.userData.muzzleLocal);
+  c.animator?.setWeaponFit(fit);
+}
+function setWeapon(actor, type) {
+  actor.weaponType = type;
+  refreshWeaponFit(actor);
+  if (actor.player && ui.weaponLabel) ui.weaponLabel.textContent = WEAPONS[type].name;
+}
+
+// Camera: keep the lens out of walls and pillars.
+function cameraHitsWorld(p) {
+  for (const box of solidBounds) {
+    if (p.y < box.minY - 0.25 || p.y > box.maxY + 0.25) continue;
+    if (box.shape === 'circle') {
+      if ((p.x - box.x) ** 2 + (p.z - box.z) ** 2 < (box.radius + 0.28) ** 2) return true;
+    } else if (p.x > box.minX - 0.28 && p.x < box.maxX + 0.28 && p.z > box.minZ - 0.28 && p.z < box.maxZ + 0.28) {
+      return true;
+    }
+  }
+  return p.y < groundHeight(p.x, p.z) + 0.22;
+}
+const _camProbe = new THREE.Vector3();
+function resolveCameraCollision(target, desired) {
+  if (!cameraHitsWorld(desired)) return desired;
+  for (let t = 0.9; t >= 0.12; t -= 0.1) {
+    _camProbe.lerpVectors(target, desired, t);
+    if (!cameraHitsWorld(_camProbe)) return _camProbe.clone();
+  }
+  return target.clone().lerp(desired, 0.12);
+}
+
+// Ledge assist: running or jumping into a low ledge pops the player up onto it.
+function ledgeAssist(actor, intended, moved, dirX, dirZ, delta) {
+  actor.ledgeCooldown = Math.max(0, (actor.ledgeCooldown || 0) - delta);
+  if (actor.ledgeCooldown > 0 || intended < 0.04 || moved > intended * 0.45) return;
+  const feet = actor.position.y;
+  let top = -Infinity;
+  const reach = 0.78;
+  const px = actor.position.x + dirX * reach;
+  const pz = actor.position.z + dirZ * reach;
+  for (const box of solidBounds) {
+    const rise = box.maxY - feet;
+    if (rise < 0.22 || rise > (actor.grounded ? 1.15 : 1.4) || box.minY > feet + 0.5) continue;
+    const inside = box.shape === 'circle'
+      ? (px - box.x) ** 2 + (pz - box.z) ** 2 < (box.radius + 0.3) ** 2
+      : px > box.minX - 0.3 && px < box.maxX + 0.3 && pz > box.minZ - 0.3 && pz < box.maxZ + 0.3;
+    if (inside && box.maxY > top) top = box.maxY;
+  }
+  if (top === -Infinity) return;
+  const rise = top - feet;
+  actor.verticalVelocity = Math.max(actor.verticalVelocity, Math.sqrt(2 * 20.5 * (rise + 0.3)));
+  actor.grounded = false;
+  actor.ledgeCooldown = 0.45;
+}
+
 function updatePlayer(delta) {
   if (player.respawn > 0) {
     player.respawn = Math.max(0, player.respawn - delta);
     if (player.respawn === 0) respawnActor(player);
+    updateInk();
+    return;
+  }
+
+  updateVitals(player, delta);
+  if (player.frozen > 0) {
+    player.velocity.set(0, 0, 0);
+    player.group.position.copy(player.position);
+    updateDiveVisual(player, delta);
     updateInk();
     return;
   }
@@ -2891,9 +3173,11 @@ function updatePlayer(delta) {
   const move = new THREE.Vector3()
     .addScaledVector(cameraRight, input.x)
     .addScaledVector(cameraForward, input.y);
-  if (move.lengthSq() > 1) move.normalize();
+  // Every movement is a run: any real input moves at full speed, direction comes from the view.
+  if (move.lengthSq() > 0.0144) move.normalize(); else move.set(0, 0, 0);
 
-  const sprintRequested = sprintLocked || keys.has('ShiftLeft') || keys.has('ShiftRight');
+  const edgeSprint = isTouch && Math.hypot(joystick.x, joystick.y) > 0.93;
+  const sprintRequested = !(player.drinking > 0) && ((sprintLocked && input.y > -0.3) || keys.has('ShiftLeft') || keys.has('ShiftRight') || edgeSprint);
   const sprintPressedThisFrame = sprintRequested && !sprintWasRequested;
   sprintWasRequested = sprintRequested;
   const moving = move.lengthSq() > 0.025;
@@ -2901,12 +3185,27 @@ function updatePlayer(delta) {
 
   if (flowQueued) {
     flowQueued = false;
-    if (player.flowCooldown <= 0 && move.lengthSq() > 0.01 && hasFriendlyInkUnderfoot(player.position.x, player.position.z, BLUE)) {
-      player.flow = 0.82;
-      player.flowCooldown = 2.2;
-      showToast('FLOWLINE  /  INK SURGE');
-    } else if (player.flowCooldown <= 0) {
-      showToast('FLOWLINE NEEDS YOUR INK');
+    if (player.drinking > 0) {
+      // No dashing while drinking.
+    } else if (player.flowCooldown > 0) {
+      showToast('DASH CHARGING');
+    } else {
+      const friendlyDash = hasFriendlyInkUnderfoot(player.position.x, player.position.z, BLUE);
+      if (!friendlyDash && player.ink < 14) {
+        showToast('DASH NEEDS 14 INK');
+      } else {
+        const dashDirection = move.lengthSq() > 0.01 ? move.clone().normalize() : new THREE.Vector3(Math.sin(yaw), 0, -Math.cos(yaw));
+        player.flow = friendlyDash ? 0.62 : 0.38;
+        player.flowCooldown = friendlyDash ? 1.5 : 2.0;
+        if (!friendlyDash) player.ink = Math.max(0, player.ink - 14);
+        player.sliding = false;
+        player.velocity.x = dashDirection.x * 19.5;
+        player.velocity.z = dashDirection.z * 19.5;
+        spawnMotionSpray(player, 10, 2.0);
+        cameraShake = Math.max(cameraShake, 0.1);
+        playPop(1.1);
+        showToast(friendlyDash ? 'INK DASH  /  FREE ON YOUR INK' : 'DASH');
+      }
     }
   }
   player.flow = Math.max(0, player.flow - delta);
@@ -2924,7 +3223,7 @@ function updatePlayer(delta) {
         : move.clone().normalize();
       if (direction.lengthSq() < 0.01) direction.set(Math.sin(yaw), 0, -Math.cos(yaw));
       player.sliding = true;
-      player.slideTimer = 1.24;
+      player.slideTimer = 1.24 + (hasFriendlyInkUnderfoot(player.position.x, player.position.z, BLUE) ? 0.5 : 0);
       player.slideCooldown = 1.12;
       player.slideDirection.copy(direction);
       const slideLaunch = sprintRequested ? 17.0 : 15.3;
@@ -2971,9 +3270,13 @@ function updatePlayer(delta) {
     playPop(0.55);
   }
 
+  const diving = updateDive(player, delta, diveHeld && !(player.drinking > 0));
   const flowBoost = player.flow > 0;
-  player.sprinting = !player.sliding && sprintRequested && moving && !fireHeld && !flowBoost;
-  const targetSpeed = flowBoost ? 16.2 : (sprintRequested ? 13.8 : 8.35);
+  player.sprinting = !player.sliding && sprintRequested && moving && !fireHeld && !flowBoost && !diving;
+  const speedFactor = player.speedFactor ?? 1;
+  const targetSpeed = diving
+    ? 12.8
+    : (flowBoost ? 16.2 : (sprintRequested ? 13.8 : (player.drinking > 0 ? 3.4 : 8.35))) * speedFactor;
 
   if (player.sliding) {
     player.slideTimer -= delta;
@@ -2991,7 +3294,7 @@ function updatePlayer(delta) {
     );
     const downhillAcceleration = clamp((slideSurface - aheadSurface) / 0.45 * 9.8, -4.0, 4.0);
     player.slideSpeed = clamp(
-      (player.slideSpeed + downhillAcceleration * delta) * Math.exp(-0.58 * delta),
+      (player.slideSpeed + downhillAcceleration * delta) * Math.exp(-(hasFriendlyInkUnderfoot(player.position.x, player.position.z, BLUE) ? 0.34 : 0.58) * delta),
       5.2, 18.8
     );
     player.velocity.x = player.slideDirection.x * player.slideSpeed;
@@ -3004,7 +3307,7 @@ function updatePlayer(delta) {
     const desiredVelocity = new THREE.Vector3(move.x * targetSpeed, 0, move.z * targetSpeed);
     if (player.grounded) {
       const reversing = moving && (player.velocity.x * move.x + player.velocity.z * move.z) < -0.4;
-      const response = moving ? (reversing ? 25.0 : 17.5) : 14.5;
+      const response = diving ? 20.0 : (moving ? (reversing ? 25.0 : 17.5) : 14.5);
       player.velocity.lerp(desiredVelocity, 1 - Math.exp(-response * delta));
     } else if (moving) {
       // Air steering is deliberate but never erases the take-off momentum.
@@ -3015,7 +3318,15 @@ function updatePlayer(delta) {
     }
   }
 
+  const beforeX = player.position.x;
+  const beforeZ = player.position.z;
   moveOnGround(player, player.velocity.x * delta, player.velocity.z * delta, player.sliding ? 0.40 : 0.48);
+  if (!diving && moving) {
+    const intended = Math.hypot(player.velocity.x, player.velocity.z) * delta;
+    const moved = Math.hypot(player.position.x - beforeX, player.position.z - beforeZ);
+    ledgeAssist(player, intended, moved, move.x, move.z, delta);
+  }
+  if (player.diving) diveSurfTick(player, delta);
 
   const baseY = actorSurfaceHeight(player, player.position.x, player.position.z);
   if (!player.grounded) {
@@ -3047,7 +3358,7 @@ function updatePlayer(delta) {
   const yawDelta = Math.atan2(Math.sin(cameraFacing - player.group.rotation.y), Math.cos(cameraFacing - player.group.rotation.y));
   player.group.rotation.y += yawDelta * (1 - Math.exp(-30 * delta));
 
-  if ((player.sprinting || player.sliding) && !fireHeld) setWeaponHolstered(player, true);
+  if (player.diving || player.drinking > 0 || ((player.sprinting || player.sliding) && !fireHeld)) setWeaponHolstered(player, true);
   else setWeaponHolstered(player, false);
 
   player.fireCooldown = Math.max(0, player.fireCooldown - delta);
@@ -3105,7 +3416,8 @@ function animateActor(actor, moving, delta = 0.016) {
       weaponBlend: c.weaponBlend,
       shotTimer: shot,
       shooting: clamp(shot / 0.30, 0, 1),
-      isPlayer: actor.player
+      isPlayer: actor.player,
+      drink: actor.drinkBlend || 0
     }, detail);
   }
 
@@ -3140,19 +3452,102 @@ function updateRagdolls(delta) {
     }
   }
 }
+function renderInventory(inventory) {
+  document.querySelectorAll('.item-slot').forEach((slot) => {
+    const count = inventory[slot.dataset.item] || 0;
+    slot.querySelector('.item-count').textContent = String(count);
+    slot.classList.toggle('empty', count === 0);
+  });
+}
+function setStatus(name, on) {
+  const overlay = document.getElementById('status-overlay');
+  if (overlay) overlay.classList.toggle(name, !!on);
+}
+const items = createItems({
+  scene, player, actors, HALF, camera, groundHeight, paintSurfaceHeight, paintAt, solidBounds, damageActor,
+  spawnHitBurst, spawnSplash, showToast, playPop, getAimPoint, attachRigid, setWeapon, setStatus,
+  getYaw: () => yaw,
+  addShake: (amount) => { cameraShake = Math.max(cameraShake, amount); },
+  onInventory: renderInventory,
+  updateHud: updateInk
+});
+setWeapon(player, 'pulse');
+for (const bot of [...blueBots, ...orangeBots]) setWeapon(bot, BOT_WEAPONS[bot.variation % BOT_WEAPONS.length]);
+
+// Surface a bot could stand on: the ground, ramps, or the top of a low solid (crates, cover, platforms).
+function standHeight(x, z) {
+  let height = groundHeight(x, z);
+  for (const box of solidBounds) {
+    if (box.maxY <= height + 0.05 || box.maxY > height + 3.3 || box.minY > height + 0.6) continue;
+    const inside = box.shape === 'circle'
+      ? (x - box.x) ** 2 + (z - box.z) ** 2 < box.radius ** 2
+      : x > box.minX && x < box.maxX && z > box.minZ && z < box.maxZ;
+    if (inside && box.maxY > height) height = box.maxY;
+  }
+  return height;
+}
 const botNav = new NavGrid({
   half: HALF,
   cell: 1.5,
-  heightAt: (x, z) => groundHeight(x, z),
+  heightAt: (x, z) => standHeight(x, z),
   isWalkable: (x, z, h) => !isBlockedAt(x, z, h, 0.62)
 });
 const botBrain = createBotBrain({
   BLUE, ORANGE, HALF, GRID, gridStep, owners, ownerAt, nav: botNav, solidBounds,
   hasFriendlyInk: hasFriendlyInkUnderfoot,
   moveOnGround, paintAt, fireActor, spawnMotionSpray, animateActor, groundHeight,
+  items, actorSurfaceHeight, ledgeAssist, spawnSplash,
+  updateDive: (actor, delta, want) => updateDive(actor, delta, want),
+  diveTick: (actor, delta) => diveSurfTick(actor, delta),
+  smokeBlocks: (from, to) => items.smokeBlocks(from, to),
+  weaponSpec: (actor) => WEAPONS[actor.weaponType || 'pulse'],
   enemiesOf: (actor) => (actor.team === BLUE ? orangeTeam : blueTeam)
     .filter((other) => other.group.visible && other.respawn <= 0 && !other.ragdollState)
 });
+// ---- cinematic match intro ----------------------------------------------------------------
+const TEAM_INFO = {
+  [BLUE]: { name: 'CYAN', color: '#20d8e9' },
+  [ORANGE]: { name: 'CORAL', color: '#ff7652' }
+};
+const CALLSIGNS = ['ZAPPY', 'MOCHI', 'INKY', 'SPLAT', 'DOODLE', 'PIXEL', 'BLOTCH', 'RIPPLE', 'TINTY', 'GLOOP', 'SQUISH', 'DABBER'];
+{
+  let storedName = '';
+  try { storedName = (localStorage.getItem('tint3d.name') || '').trim().toUpperCase().slice(0, 12); } catch { /* optional */ }
+  player.displayName = storedName || 'YOU';
+  [...blueBots, ...orangeBots].forEach((bot, index) => { bot.displayName = CALLSIGNS[index % CALLSIGNS.length]; });
+}
+function getGameplayPose() {
+  const keep = { p: camera.position.clone(), q: camera.quaternion.clone(), fov: camera.fov, shake: cameraShake };
+  cameraShake = 0;
+  updateCamera(10);
+  const pose = { pos: camera.position.clone(), quat: camera.quaternion.clone(), fov: camera.fov };
+  camera.position.copy(keep.p);
+  camera.quaternion.copy(keep.q);
+  camera.fov = keep.fov;
+  camera.updateProjectionMatrix();
+  cameraShake = keep.shake;
+  return pose;
+}
+const matchIntro = new MatchIntro({
+  renderer, camera, actors, player, BLUE, ORANGE, HALF, teamInfo: TEAM_INFO, authoritativeClock: false,
+  animateActor, fxScale: () => fxScale, spawnMotionSpray,
+  holster: (actor) => setWeaponHolstered(actor, false, true),
+  resolveCamera: resolveCameraCollision,
+  getGameplayPose,
+  splash: (actor) => {
+    const floor = actorSurfaceHeight(actor, actor.position.x, actor.position.z);
+    spawnSplash(new THREE.Vector3(actor.position.x, floor, actor.position.z), actor.team, floor);
+  },
+  shake: (amount) => { cameraShake = Math.max(cameraShake, amount); },
+  getAudioContext: () => { audioContext ||= new AudioContext(); if (audioContext.state === 'suspended') audioContext.resume(); return audioContext; },
+  isSoundOn: () => soundOn,
+  onGo: () => {
+    lastPlayerPaintPosition = new THREE.Vector3(player.position.x, 0, player.position.z);
+    introActive = false;
+    gameStarted = true;
+  }
+});
+
 function updateBots(delta) {
   for (const actor of [...blueBots, ...orangeBots]) {
     if (actor.respawn > 0) {
@@ -3163,6 +3558,7 @@ function updateBots(delta) {
     if (!actor.group.visible) continue;
     actor.fireCooldown -= delta;
     actor.invulnerable = Math.max(0, actor.invulnerable - delta);
+    updateVitals(actor, delta);
     botBrain.update(actor, delta);
   }
 }
@@ -3177,9 +3573,10 @@ function updateCamera(delta) {
   const forward = new THREE.Vector3(Math.sin(yaw), 0, -Math.cos(yaw)).normalize();
   const right = new THREE.Vector3(Math.cos(yaw), 0, Math.sin(yaw)).normalize();
   const sliding = !!player.sliding;
-  const target = player.position.clone().add(new THREE.Vector3(0, sliding ? 0.98 : 1.38, 0));
-  const distance = sliding ? 5.25 : 6.35;
-  const height = sliding ? 1.48 : 2.18;
+  const diving = !!player.diving;
+  const target = player.position.clone().add(new THREE.Vector3(0, diving ? 0.62 : (sliding ? 0.98 : 1.38), 0));
+  const distance = diving ? 4.7 : (sliding ? 5.25 : 6.35);
+  const height = diving ? 1.2 : (sliding ? 1.48 : 2.18);
   const shoulder = 0.48;
   const lateralVelocity = player.velocity.x * right.x + player.velocity.z * right.z;
   const forwardVelocity = player.velocity.x * forward.x + player.velocity.z * forward.z;
@@ -3197,6 +3594,7 @@ function updateCamera(delta) {
     desired.z += Math.cos(time * 43.0 + 1.4) * shake * 0.32;
     cameraShake = Math.max(0, cameraShake - delta * 3.4);
   }
+  desired.copy(resolveCameraCollision(target, desired));
   camera.position.lerp(desired, 1 - Math.exp(-(sliding ? 17.5 : 19.5) * delta));
   const lookTarget = target.clone()
     .addScaledVector(forward, 3.35 + clamp(forwardVelocity * 0.045, -0.35, 0.65))
@@ -3204,7 +3602,7 @@ function updateCamera(delta) {
     .add(new THREE.Vector3(0, 0.10 - pitch * 4.8 + cameraRecoil * 2.0, 0));
   cameraRecoil = Math.max(0, cameraRecoil - delta * 0.22);
   camera.lookAt(lookTarget);
-  const wantedFov = sliding ? 79 : (player.sprinting || player.flow > 0 ? 72 : 65);
+  const wantedFov = diving ? 76 : (sliding ? 79 : (player.sprinting || player.flow > 0 ? 72 : 65));
   camera.fov = THREE.MathUtils.damp(camera.fov, wantedFov, sliding ? 7.2 : 8.5, delta);
   camera.updateProjectionMatrix();
 }
@@ -3345,8 +3743,18 @@ function resetMatch() {
     actor.slideCooldown = 0;
     actor.jumpBuffer = 0;
     actor.coyoteTimer = 0.12;
+    actor.diving = false;
+    actor.diveBlend = 0;
+    if (actor.diveBlob) actor.diveBlob.visible = false;
+    actor.frozen = 0;
+    actor.sticky = 0;
+    actor.drinking = 0;
+    actor.regenDelay = 0;
+    setWeapon(actor, actor.player ? 'pulse' : BOT_WEAPONS[actor.variation % BOT_WEAPONS.length]);
     resetCharacterPose(actor);
   }
+  items.reset();
+  diveHeld = false;
   player.health = 100;
   sprintLocked = false;
   sprintWasRequested = false;
@@ -3369,6 +3777,7 @@ function resetMatch() {
   startGame();
 }
 function startGame() {
+  lockLandscape();
   if (introActive || gameStarted) return;
   sprintLocked = false;
   sprintWasRequested = false;
@@ -3384,34 +3793,17 @@ function startGame() {
   ui.pause.classList.add('hidden');
   ui.result.classList.add('hidden');
 
-  // Stage the actual 3D crew in two facing lines for the briefing camera.
-  // Their real spawn locations are restored when the countdown reaches zero.
-  introSavedActors = actors.map((actor) => ({
-    actor,
-    position: actor.position.clone(),
-    rotationY: actor.group.rotation.y
-  }));
-  const lineupX = [-8, -4, 0, 4, 8];
-  blueTeam.forEach((actor, index) => {
-    actor.position.set(lineupX[index], 0, 8.4);
+  // The cinematic intro runs on the real characters at their real spawn points.
+  introSavedActors = [];
+  yaw = 0;
+  pitch = 0.2;
+  for (const actor of actors) {
     actor.velocity.set(0, 0, 0);
-    actor.group.position.copy(actor.position);
-    actor.group.rotation.set(0, Math.PI, 0);
     actor.group.visible = true;
-    resetCharacterPose(actor);
-  });
-  orangeTeam.forEach((actor, index) => {
-    actor.position.set(lineupX[index], 0, -8.4);
-    actor.velocity.set(0, 0, 0);
     actor.group.position.copy(actor.position);
-    actor.group.rotation.set(0, Math.PI, 0);
-    actor.group.visible = true;
-    resetCharacterPose(actor);
-  });
-
-  ui.introPhase.textContent = 'SQUAD ASSEMBLY';
-  ui.introCount.textContent = 'READY';
-  ui.introStatus.textContent = 'YOUR CREW IS ENTERING THE FIELD';
+  }
+  ui.intro.classList.add('hidden');
+  matchIntro.begin();
   if (!isTouch && renderer.domElement.requestPointerLock) {
     try {
       const request = renderer.domElement.requestPointerLock();
@@ -3521,16 +3913,24 @@ document.addEventListener('keydown', (event) => {
   }
   if (event.code === 'KeyQ' && !event.repeat) flowQueued = true;
   if (event.code === 'KeyC' && !event.repeat) slideQueued = true;
+  if (event.code === 'KeyE' && !event.repeat) diveHeld = true;
+  const itemSlot = { Digit1: 0, Digit2: 1, Digit3: 2, Digit4: 3, Digit5: 4 }[event.code];
+  if (itemSlot !== undefined && !event.repeat && gameStarted && !paused && !ended) items.useItem(ITEM_ORDER[itemSlot]);
   if (event.code === 'Escape' && gameStarted && !isTouch) pauseGame();
 });
 document.addEventListener('keyup', (event) => {
   keys.delete(event.code);
   if (event.code === 'Space') jumpHeld = false;
+  if (event.code === 'KeyE') diveHeld = false;
 });
 renderer.domElement.addEventListener('pointerdown', (event) => {
   if (event.button === 0 && gameStarted && !paused && !isTouch) {
     fireHeld = true;
     fireFromCurrentReticle();
+  }
+  if (event.button === 2 && gameStarted && !paused && !isTouch) {
+    event.preventDefault();
+    diveHeld = true;
   }
   if (isTouch && event.clientX > innerWidth * 0.38 && !event.target.closest('button')) {
     renderer.domElement.setPointerCapture?.(event.pointerId);
@@ -3558,8 +3958,9 @@ function releasePointer(event) {
 renderer.domElement.addEventListener('pointerup', releasePointer);
 renderer.domElement.addEventListener('pointercancel', releasePointer);
 window.addEventListener('pointerup', () => {
-  if (!isTouch) fireHeld = false;
+  if (!isTouch) { fireHeld = false; diveHeld = keys.has('KeyE'); }
 });
+renderer.domElement.addEventListener('contextmenu', (event) => event.preventDefault());
 window.addEventListener('pointercancel', () => {
   if (!isTouch) fireHeld = false;
   jumpHeld = false;
@@ -3567,10 +3968,11 @@ window.addEventListener('pointercancel', () => {
 
 const joystickEl = $('joystick');
 const knobEl = $('joystick-knob');
-const fireButton = $('fire-button');
-const jumpButton = $('jump-button');
-const sprintButton = $('sprint-button');
-const slideButton = $('slide-button');
+const fireButton = $('btn-fire');
+const jumpButton = $('btn-jump');
+const sprintButton = $('btn-run');
+const slideButton = $('btn-slide');
+const diveButton = $('btn-dive');
 function updateJoystick(event) {
   const rect = joystickEl.getBoundingClientRect();
   const cx = rect.left + rect.width / 2;
@@ -3598,13 +4000,43 @@ joystickEl.addEventListener('pointermove', (event) => {
 });
 joystickEl.addEventListener('pointerup', releasePointer);
 joystickEl.addEventListener('pointercancel', releasePointer);
+// Hold FIRE and slide the same finger to look around while shooting.
 fireButton.addEventListener('pointerdown', (event) => {
   event.preventDefault();
+  fireButton.setPointerCapture?.(event.pointerId);
+  firePointer = { id: event.pointerId, x: event.clientX, y: event.clientY };
   fireHeld = true;
   fireFromCurrentReticle();
 });
-fireButton.addEventListener('pointerup', () => { fireHeld = false; });
-fireButton.addEventListener('pointercancel', () => { fireHeld = false; });
+fireButton.addEventListener('pointermove', (event) => {
+  if (!firePointer || firePointer.id !== event.pointerId) return;
+  yaw += (event.clientX - firePointer.x) * 0.0052;
+  pitch = clamp(pitch + (event.clientY - firePointer.y) * 0.0038, -0.95, 0.68);
+  firePointer.x = event.clientX;
+  firePointer.y = event.clientY;
+});
+const releaseFire = (event) => {
+  if (firePointer && event.pointerId !== undefined && firePointer.id !== event.pointerId) return;
+  fireHeld = false;
+  firePointer = null;
+};
+fireButton.addEventListener('pointerup', releaseFire);
+fireButton.addEventListener('pointercancel', releaseFire);
+diveButton.addEventListener('pointerdown', (event) => {
+  event.preventDefault();
+  diveButton.setPointerCapture?.(event.pointerId);
+  diveHeld = true;
+  diveButton.classList.add('is-held');
+});
+const releaseDive = () => { diveHeld = false; diveButton.classList.remove('is-held'); };
+diveButton.addEventListener('pointerup', releaseDive);
+diveButton.addEventListener('pointercancel', releaseDive);
+document.querySelectorAll('.item-slot').forEach((slot) => {
+  slot.addEventListener('pointerdown', (event) => {
+    event.preventDefault();
+    if (gameStarted && !paused && !ended) items.useItem(slot.dataset.item);
+  });
+});
 jumpButton.addEventListener('pointerdown', (event) => {
   event.preventDefault();
   jumpQueued = true;
@@ -3617,7 +4049,7 @@ jumpButton.addEventListener('pointercancel', () => { jumpHeld = false; });
 function updateSprintButton() {
   sprintButton.classList.toggle('is-locked', sprintLocked);
   sprintButton.setAttribute('aria-pressed', String(sprintLocked));
-  sprintButton.textContent = sprintLocked ? 'RUN ON' : 'RUN';
+  sprintButton.innerHTML = sprintLocked ? 'AUTO<br>RUN ON' : 'AUTO<br>RUN';
 }
 sprintButton.addEventListener('pointerdown', (event) => {
   event.preventDefault();
@@ -3628,30 +4060,29 @@ slideButton.addEventListener('pointerdown', (event) => {
   event.preventDefault();
   slideQueued = true;
 });
-$('flow-button').addEventListener('pointerdown', (event) => {
+$('btn-dash').addEventListener('pointerdown', (event) => {
   event.preventDefault();
   flowQueued = true;
 });
 
 function animate() {
   requestAnimationFrame(animate);
-  const delta = Math.min(clock.getDelta(), 0.04);
-  if (introActive) {
-    updateMatchIntro(delta);
-  }
+  const delta = document.body.classList.contains('portrait') ? 0 : Math.min(clock.getDelta(), 0.04);
+  matchIntro.update(delta);
   if (gameStarted && !paused && !ended) {
     timeLeft -= delta;
     ui.timer.textContent = formatTime(timeLeft);
     updatePlayer(delta);
     updateBots(delta);
+    items.update(delta);
+    pixelBurst.update(delta);
     // Refresh camera after movement and before reading the aim ray.
     updateCamera(delta);
     if (fireHeld) fireActor(player, getAimPoint());
     updateProjectiles(delta);
     if (timeLeft <= 0) finishMatch();
   } else {
-    if (introActive) updateIntroCamera(delta);
-    else updateCamera(delta);
+    if (!introActive) updateCamera(delta);
     if (!paused) updateProjectiles(delta);
   }
   updateParticles(delta);
@@ -3677,13 +4108,38 @@ function animate() {
   sun.target.position.set(Math.round(player.position.x / texel) * texel, 0, Math.round(player.position.z / texel) * texel);
   sun.position.copy(sun.target.position).add(sunOffset);
   sun.target.updateMatrixWorld();
-  renderer.render(scene, camera);
+  quality.update(player.position);
+  quality.render();
+}
+const rotateOverlay = document.getElementById('rotate-overlay');
+function checkOrientation() {
+  const portrait = isTouch && innerHeight > innerWidth * 1.02;
+  document.body.classList.toggle('portrait', portrait);
+  return portrait;
+}
+async function lockLandscape() {
+  if (!isTouch) return;
+  try {
+    if (document.documentElement.requestFullscreen && !document.fullscreenElement) await document.documentElement.requestFullscreen({ navigationUI: 'hide' });
+    await screen.orientation?.lock?.('landscape');
+  } catch { /* Orientation lock is best effort; the rotate prompt covers the rest. */ }
+}
+addEventListener('orientationchange', checkOrientation);
+checkOrientation();
+const gfxButton = document.getElementById('quality-toggle');
+if (gfxButton) {
+  gfxButton.textContent = 'GFX ' + quality.label;
+  gfxButton.addEventListener('click', () => {
+    const label = quality.cyclePreference();
+    gfxButton.textContent = 'GFX ' + label;
+    showToast('GRAPHICS  /  ' + label);
+  });
 }
 function onResize() {
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
-  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, isTouch ? 1.15 : 1.4));
-  renderer.setSize(innerWidth, innerHeight);
+  quality.resize(innerWidth, innerHeight);
+  checkOrientation();
 }
 addEventListener('resize', onResize);
 updateScore();

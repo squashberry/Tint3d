@@ -417,6 +417,19 @@ export class OperatorAnimator {
       this._placeWeapon(weapon, state.weaponBlend, actor.recoil || 0);
       if (detail > 0 && this.armedBlend > 0.04) this._gripWeapon(weapon);
     }
+    if (state.drink > 0.02) this._drinkPose(state.drink);
+  }
+
+  /** Raise the right hand (holding the jug) to the mouth. */
+  _drinkPose(weight) {
+    const bones = this.bones;
+    bones.get('Head').getWorldPosition(_v1);
+    this.group.getWorldQuaternion(_qg);
+    this.group.getWorldPosition(_gp);
+    _v2.set(0.05, -0.10, -0.24).applyQuaternion(_qg);
+    _v1.add(_v2);
+    _v4.set(0.7, 0.9, 0.2).applyQuaternion(_qg).add(_gp);
+    solveTwoBone(bones.get('upperarm_r'), bones.get('lowerarm_r'), bones.get('hand_r'), _v1, _v4, 0.92 * weight);
   }
 
   /**

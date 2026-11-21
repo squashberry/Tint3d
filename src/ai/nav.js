@@ -47,7 +47,9 @@ export class NavGrid {
    * half: half arena size, cell: cell size in metres,
    * isWalkable(x, z, height): can a bot stand here, heightAt(x, z): surface height.
    */
-  constructor({ half, cell, isWalkable, heightAt, maxStep = 0.5 }) {
+  constructor({ half, cell, isWalkable, heightAt, maxStep = 0.5, maxJump = 1.7, maxDrop = 4 }) {
+    this.maxJump = maxJump;
+    this.maxDrop = maxDrop;
     this.half = half;
     this.cell = cell;
     this.size = Math.ceil((half * 2) / cell);
@@ -105,7 +107,14 @@ export class NavGrid {
     return best;
   }
 
-  linkOk(a, b) { return this.walkable[b] === 1 && Math.abs(this.height[a] - this.height[b]) <= this.maxStep; }
+  /** Walk link (small step), jump link (climb up to maxJump) or drop link (fall down to maxDrop). */
+  linkOk(a, b, allowVertical = false) {
+    if (this.walkable[b] !== 1) return false;
+    const dh = this.height[b] - this.height[a];
+    if (Math.abs(dh) <= this.maxStep) return true;
+    if (!allowVertical) return false;
+    return dh > 0 ? dh <= this.maxJump : -dh <= this.maxDrop;
+  }
 
   /** Returns [{x, z}] from start to goal (excluding the start), or null. */
   findPath(sx, sz, gx, gz, avoidCost = null) {
@@ -136,11 +145,15 @@ export class NavGrid {
         const nz = cz + dz;
         if (nx < 0 || nz < 0 || nx >= n || nz >= n) continue;
         const next = nz * n + nx;
-        if (closed[next] || !this.linkOk(current, next)) continue;
-        if (dx !== 0 && dz !== 0) {
+        const orthogonal = dx === 0 || dz === 0;
+        if (closed[next] || !this.linkOk(current, next, orthogonal)) continue;
+        if (!orthogonal) {
           if (!this.linkOk(current, cz * n + nx) || !this.linkOk(current, nz * n + cx)) continue;
         }
-        const extra = avoidCost ? avoidCost(next) : 0;
+        const rise = this.height[next] - this.height[current];
+        let extra = avoidCost ? avoidCost(next) : 0;
+        if (rise > this.maxStep) extra += 3 + rise * 1.5;
+        else if (rise < -this.maxStep) extra += 0.8;
         const g = this.gScore[current] + cost + extra;
         if (this.stamp[next] !== search || g < this.gScore[next]) {
           this.stamp[next] = search;
@@ -158,7 +171,14 @@ export class NavGrid {
       const [x, z] = this.cellCenter(c % n, (c / n) | 0);
       return { x, z, h: this.height[c] };
     });
-    return this.smooth(sx, sz, points);
+    const smoothed = this.smooth(sx, sz, points);
+    let previous = this.height[start];
+    for (const p of smoothed) {
+      p.rise = p.h - previous;
+      p.jump = p.rise > this.maxStep;
+      previous = p.h;
+    }
+    return smoothed;
   }
 
   /** Greedy string pulling: skip waypoints while the straight line stays walkable. */
