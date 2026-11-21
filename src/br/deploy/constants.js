@@ -2,7 +2,7 @@
 // Units: metres / seconds. World axes match Splat Island: +X east, +Z south, +Y up.
 // The carrier's bow points towards +X (the island).
 
-export const CARRIER_ORIGIN = { x: -3300, y: 0, z: 700 };
+export const CARRIER_ORIGIN = { x: -3800, y: 0, z: 700 };
 
 // Carrier-local layout (origin = waterline at the ship's centre).
 export const DECK = {

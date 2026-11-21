@@ -88,22 +88,22 @@ export class DeploymentCamera {
         this.A(6, 4, 0, p.target);
         p.fov = 32;
       } }),
-      P({ name: 'aerialFollow', t0: T.liftoff + 2.5, t1: T.liftoff + 13, blend: 1.0, track: 3, rig: (u, t, p) => {
+      P({ name: 'aerialFollow', t0: T.liftoff + 2.5, t1: T.liftoff + 9.5, blend: 1.0, track: 3, rig: (u, t, p) => {
         this.A(-95, 18, 38, p.pos);
         this.A(8, 6, 0, p.target);
         p.fov = 54;
       } }),
-      P({ name: 'islandApproach', t0: T.liftoff + 13, t1: T.deployOpen - 11, blend: 1.6, track: 2, rig: (u, t, p) => {
+      P({ name: 'islandApproach', t0: T.liftoff + 9.5, t1: T.deployOpen - 6.5, blend: 1.6, track: 2, rig: (u, t, p) => {
         this.A(-64, 20, 14, p.pos);
         this.A(520, -45, 0, p.target);
         p.fov = 56;
       } }),
-      P({ name: 'cockpit', t0: T.deployOpen - 11, t1: T.deployOpen - 4, blend: 1.4, shake: 0.015, rig: (u, t, p) => {
+      P({ name: 'cockpit', t0: T.deployOpen - 6.5, t1: T.deployOpen - 3.5, blend: 1.4, shake: 0.015, rig: (u, t, p) => {
         this.A(31.2, 6.5, 0.15, p.pos);
         this.A(120, 2.2, 0, p.target);
         p.fov = 70;
       } }),
-      P({ name: 'deployBay', t0: T.deployOpen - 4, t1: T.deployOpen + 9, blend: 1.2, shake: 0.04, rig: (u, t, p) => {
+      P({ name: 'deployBay', t0: T.deployOpen - 3.5, t1: T.deployOpen + 9, blend: 1.2, shake: 0.04, rig: (u, t, p) => {
         this.A(12, 5.4, 0.4, p.pos);
         this.A(-60, -2, 0, p.target);
         p.fov = 72;
