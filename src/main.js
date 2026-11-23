@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import './style.css';
+import './menu/menu.css';
+import { loadTracker } from './boot/loadTracker.js';
 import { createOperatorGroup, attachRigid } from './operators/index.js';
 import { WEAPONS, BOT_WEAPONS } from './gameplay/weapons.js';
 import { createItems, ITEM_ORDER } from './gameplay/items.js';
@@ -1328,7 +1330,12 @@ const kenneyAssetRoot = import.meta.env.BASE_URL + 'assets/kenney/';
 const kenneySourceCache = new Map();
 const kenneyTextureCache = new Map();
 
-function getKenneySource(pack, file) {
+function getKenneySource(...args) {
+  const promise = getKenneySourceRaw(...args);
+  loadTracker.track(Promise.resolve(promise), 'kenney');
+  return promise;
+}
+function getKenneySourceRaw(pack, file) {
   const key = pack + '/' + file;
   if (kenneySourceCache.has(key)) return kenneySourceCache.get(key);
   const promise = new Promise((resolve) => {
@@ -2528,7 +2535,7 @@ let introElapsed = 0;
 let introSavedActors = [];
 let paused = false;
 let ended = false;
-let soundOn = false;
+let soundOn = (() => { try { return localStorage.getItem('tint3d.sound') === '1'; } catch { return false; } })();
 let timeLeft = MATCH_SECONDS;
 let toastTimer = 0;
 let fireHeld = false;
@@ -3872,7 +3879,57 @@ function pauseGame() {
   if (document.pointerLockElement) document.exitPointerLock();
 }
 
-$('start-button').addEventListener('click', startGame);
+// ---- main menu ---------------------------------------------------------------------------
+// Game modes announce themselves with a cancelable `tint3d:play` event so other systems (for
+// example the Battle Royale mode) can claim a mode: call event.preventDefault() in your listener.
+function requestPlay(mode) {
+  const event = new CustomEvent('tint3d:play', { detail: { mode }, cancelable: true });
+  window.dispatchEvent(event);
+  return !event.defaultPrevented;
+}
+$('start-button').addEventListener('click', () => { if (requestPlay('regular')) startGame(); });
+document.getElementById('mode-royale')?.addEventListener('click', () => {
+  if (requestPlay('battle-royale')) showToast('BATTLE ROYALE  /  NOT CONNECTED YET');
+});
+const menuName = document.getElementById('menu-name');
+if (menuName) {
+  try { menuName.value = localStorage.getItem('tint3d.name') || ''; } catch { /* optional */ }
+  menuName.addEventListener('input', () => {
+    const value = menuName.value.trim().toUpperCase().slice(0, 12);
+    try { localStorage.setItem('tint3d.name', value); } catch { /* optional */ }
+    player.displayName = value || 'YOU';
+  });
+}
+function syncMenuButtons() {
+  const gfx = document.getElementById('menu-gfx');
+  const snd = document.getElementById('menu-sound');
+  if (gfx) gfx.textContent = 'GRAPHICS · ' + quality.label;
+  if (snd) snd.textContent = soundOn ? 'SOUND ON' : 'SOUND OFF';
+}
+document.getElementById('menu-gfx')?.addEventListener('click', () => { document.getElementById('quality-toggle')?.click(); syncMenuButtons(); });
+document.getElementById('menu-sound')?.addEventListener('click', () => { document.getElementById('sound-toggle')?.click(); syncMenuButtons(); });
+syncMenuButtons();
+window.tint3d = Object.assign(window.tint3d || {}, { startRegularMatch: () => startGame(), requestPlay });
+function menuOpen() {
+  return !gameStarted && !introActive && !document.body.classList.contains('splash-on') && !ui.start.classList.contains('hidden');
+}
+let menuTime = 0;
+const menuTarget = new THREE.Vector3();
+const menuDesired = new THREE.Vector3();
+// While the menu is open the live operator poses in the arena, orbited by a slow cinematic camera.
+function updateMenuCamera(delta) {
+  menuTime += delta;
+  for (const actor of actors) {
+    if (actor.group.visible && actor.position.distanceToSquared(player.position) < 900) animateActor(actor, 0, delta);
+  }
+  const angle = 0.5 + Math.sin(menuTime * 0.33) * 0.38;
+  menuTarget.set(player.position.x, player.position.y + 1.15, player.position.z);
+  menuDesired.set(player.position.x + Math.sin(angle) * 3.7, player.position.y + 1.3, player.position.z - Math.cos(angle) * 3.7);
+  camera.position.lerp(menuDesired, 1 - Math.exp(-4 * delta));
+  camera.lookAt(menuTarget);
+  if (Math.abs(camera.fov - 36) > 0.05) { camera.fov += (36 - camera.fov) * Math.min(1, delta * 4); camera.updateProjectionMatrix(); }
+  if (Math.floor(menuTime * 2) !== Math.floor((menuTime - delta) * 2)) syncMenuButtons();
+}
 $('resume-button').addEventListener('click', () => {
   if (ended) return;
   paused = false;
@@ -3884,6 +3941,7 @@ $('restart-button').addEventListener('click', resetMatch);
 $('play-again-button').addEventListener('click', resetMatch);
 $('sound-toggle').addEventListener('click', (event) => {
   soundOn = !soundOn;
+  try { localStorage.setItem('tint3d.sound', soundOn ? '1' : '0'); } catch { /* optional */ }
   event.currentTarget.classList.toggle('active', soundOn);
   event.currentTarget.textContent = soundOn ? '♫' : '♪';
   playPop(0.8);
@@ -4082,7 +4140,8 @@ function animate() {
     updateProjectiles(delta);
     if (timeLeft <= 0) finishMatch();
   } else {
-    if (!introActive) updateCamera(delta);
+    if (menuOpen()) updateMenuCamera(delta);
+    else if (!introActive) updateCamera(delta);
     if (!paused) updateProjectiles(delta);
   }
   updateParticles(delta);

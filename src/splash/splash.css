@@ -1,0 +1,26 @@
+/* ===== Cinematic splash ===== */
+.splash { position: fixed; inset: 0; z-index: 10000; overflow: hidden; background: radial-gradient(circle at 50% 40%, #16204f, #060818 70%); opacity: 1; transition: opacity .6s ease; font-family: 'Barlow Condensed', 'Arial Narrow', sans-serif; color: #fff; }
+.splash.leaving { opacity: 0; pointer-events: none; }
+.splash canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+#splash-paint { z-index: 2; filter: drop-shadow(0 6px 10px rgba(0,0,0,.35)); }
+.splash-ui { position: absolute; inset: 0; z-index: 3; pointer-events: none; }
+.splash-logo { position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%) skewX(-8deg); font: 900 italic clamp(64px, 20vh, 190px)/.85 'Barlow Condensed', sans-serif; letter-spacing: .02em; white-space: nowrap; opacity: 0; transition: opacity .5s ease, top .6s cubic-bezier(.2,1,.3,1); }
+.splash-logo span { color: #fff; -webkit-text-stroke: .045em #12206e; paint-order: stroke fill; text-shadow: 0 .05em 0 #12206e, .04em .09em 0 #0a1450, 0 .16em .3em rgba(0,0,0,.5); }
+.splash-logo b { background: linear-gradient(180deg, #ffe45e, #ff7a3c 55%, #ff3f95); -webkit-background-clip: text; background-clip: text; color: transparent; -webkit-text-stroke: .045em #5a1450; paint-order: stroke fill; filter: drop-shadow(0 .06em 0 #5a1450) drop-shadow(0 .14em .28em rgba(0,0,0,.45)); margin-left: .06em; }
+.splash.boot .splash-logo { opacity: 1; animation: logo-breathe 2.2s ease-in-out infinite; }
+.splash.stage .splash-logo { opacity: 0; }
+.splash.art .splash-logo { opacity: 1; top: 40%; animation: logo-pop .8s cubic-bezier(.2,1.5,.3,1) both; }
+@keyframes logo-breathe { 50% { transform: translate(-50%, -50%) skewX(-8deg) scale(1.03); } }
+@keyframes logo-pop { 0% { opacity: 0; transform: translate(-50%, -50%) skewX(-8deg) scale(2.2); } 60% { opacity: 1; transform: translate(-50%, -50%) skewX(-8deg) scale(.95); } 100% { transform: translate(-50%, -50%) skewX(-8deg) scale(1); } }
+.splash-load { position: absolute; left: 50%; bottom: max(5vh, env(safe-area-inset-bottom, 0px) + 12px); transform: translateX(-50%); width: min(540px, 72vw); display: grid; gap: 9px; justify-items: center; }
+.splash-line { width: 100%; height: 12px; border-radius: 999px; background: rgba(4, 8, 28, .72); border: 2px solid rgba(255,255,255,.55); box-shadow: 0 5px 18px rgba(0,0,0,.4); overflow: hidden; padding: 2px; }
+.splash-line i { display: block; width: 100%; height: 100%; border-radius: 999px; transform-origin: left center; transform: scaleX(.02); background: linear-gradient(90deg, #22dcec, #2a74ff 35%, #ff3f95 70%, #ffbf2e); box-shadow: inset 0 3px 0 rgba(255,255,255,.4), 0 0 14px rgba(34,220,236,.6); }
+.splash-load span { font: 800 clamp(12px, 2.4vh, 17px) 'Barlow Condensed', sans-serif; letter-spacing: .26em; text-transform: uppercase; text-shadow: 0 2px 6px rgba(0,0,0,.6); }
+.splash-skip, .splash-sound { position: absolute; bottom: max(3vh, 12px); pointer-events: auto; padding: 8px 15px; border-radius: 999px; border: 1px solid rgba(255,255,255,.4); background: rgba(3,8,24,.55); color: #fff; font: 800 12px 'Barlow Condensed', sans-serif; letter-spacing: .2em; backdrop-filter: blur(6px); }
+.splash-skip { left: max(3vw, 12px); }
+.splash-sound { right: max(3vw, 12px); }
+.splash-sound.hidden, .splash.art .splash-skip, .splash.boot .splash-skip { display: none; }
+.splash-drop { position: absolute; left: 50%; top: 40%; width: 4.6vh; height: 5.6vh; margin-left: -2.3vh; border-radius: 50% 50% 50% 50% / 62% 62% 38% 38%; background: radial-gradient(circle at 35% 30%, #fff 0 12%, #ff7a3c 14%, #ff3f95 80%); opacity: 0; transform: translateY(-40vh); box-shadow: 0 .6vh 1.4vh rgba(0,0,0,.4); }
+.splash-drop.fall { animation: drop-fall .95s cubic-bezier(.4,0,.8,.6) forwards; }
+@keyframes drop-fall { 0% { opacity: 1; transform: translateY(-40vh) scale(.8, 1.2); } 55% { opacity: 1; transform: translateY(14vh) scale(.9, 1.15); } 62% { transform: translateY(14vh) scale(1.5, .55); } 74% { transform: translateY(5vh) scale(.9, 1.1); } 86% { transform: translateY(14vh) scale(1.25, .75); } 100% { opacity: 0; transform: translateY(14vh) scale(1.6, .3); } }
+@media (orientation: portrait) { .splash-logo { font-size: clamp(54px, 15vw, 120px); } }

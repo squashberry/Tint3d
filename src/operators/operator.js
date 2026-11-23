@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 import { loadOperatorAssets } from './assets.js';
+import { loadTracker } from '../boot/loadTracker.js';
 import { OperatorAnimator, buildClipSet } from './animator.js';
 
 // 10 distinct operators: variation 0-4 per team (blue uses 0-4, orange 5-9).
@@ -231,12 +232,13 @@ export function createOperatorGroup({ team, variation, isPlayer, palette }) {
   group.userData.shotTimer = 0;
 
   const index = (variation + (team === 1 ? 0 : 5)) % APPEARANCES.length;
+  const loadId = loadTracker.begin('operator');
   loadOperatorAssets().then((assets) => {
     const operator = new Operator(group, assets, { appearance: APPEARANCES[index], isPlayer, palette });
     character.operator = operator;
     character.animator = operator.animator;
     if (character.weaponFitBox) operator.animator.setWeaponFit(character.weaponFitBox);
     weapon.visible = true;
-  }).catch((error) => console.error('Tint3d operator build failed:', error));
+  }).catch((error) => console.error('Tint3d operator build failed:', error)).finally(() => loadTracker.end(loadId));
   return group;
 }

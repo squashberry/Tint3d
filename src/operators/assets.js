@@ -1,6 +1,7 @@
 // Loads the operator asset set once and shares it between every character.
 // All files are CC0 (Quaternius) and live in public/assets/operators.
 import * as THREE from 'three';
+import { loadTracker } from '../boot/loadTracker.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 const ROOT = ((import.meta.env && import.meta.env.BASE_URL) || '/') + 'assets/operators/';
@@ -11,18 +12,18 @@ export const HAIRSTYLES = [
   'Hair_Buns', 'Hair_Long', 'Hair_Buzzed', 'Hair_BuzzedFemale', 'Hair_SimpleParted', 'Hair_Beard'
 ];
 
-const loadGLTF = (file) => new Promise((resolve, reject) => {
+const loadGLTF = (file) => loadTracker.track(new Promise((resolve, reject) => {
   gltfLoader.load(ROOT + file, resolve, undefined, reject);
-});
+}), file);
 
-const loadTexture = (file) => new Promise((resolve, reject) => {
+const loadTexture = (file) => loadTracker.track(new Promise((resolve, reject) => {
   textureLoader.load(ROOT + file, (texture) => {
     texture.flipY = false; // glTF UV convention
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.anisotropy = 4;
     resolve(texture);
   }, undefined, reject);
-});
+}), file);
 
 let cached = null;
 
