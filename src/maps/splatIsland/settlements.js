@@ -104,6 +104,7 @@ export function planSettlements(T, seed = 77) {
   }
 
   const roster = (table) => (rnd) => { let r = rnd(); for (const [p, k] of table) { if (r < p) return k; r -= p; } return table[table.length - 1][1]; };
+  const R = (table) => { const f = roster(table); return (d, rnd) => f(rnd); };
 
   for (const poi of T.pois) {
     const maxR = poi.r * 0.78;
@@ -111,7 +112,7 @@ export function planSettlements(T, seed = 77) {
       const mix = (dist, rnd) => (dist < 0.3 ? (rnd() < 0.7 ? 'tower' : 'apartment') : dist < 0.62 ? roster([[0.3, 'apartment'], [0.25, 'shop'], [0.3, 'house'], [0.15, 'cottage']])(rnd) : roster([[0.5, 'house'], [0.25, 'cottage'], [0.15, 'shop'], [0.1, 'villa']])(rnd));
       gridTown(poi, { style: 'city', S: 46, maxR, lots: (d) => (d < 0.46 ? 1 : 2), kindFor: mix, skipBlock: (lx, lz, d, rnd) => d > 0.5 && rnd() < 0.16 });
     } else if (poi.kind === 'townDesert') {
-      gridTown(poi, { style: 'desert', S: 38, maxR, ang0: 0.12, streetW: 6, lots: () => 2, kindFor: roster([[0.45, 'adobe'], [0.25, 'shop'], [0.2, 'house'], [0.1, 'cottage']]), skipBlock: (lx, lz, d) => d < 0.26 });
+      gridTown(poi, { style: 'desert', S: 38, maxR, ang0: 0.12, streetW: 6, lots: () => 2, kindFor: R([[0.45, 'adobe'], [0.25, 'shop'], [0.2, 'house'], [0.1, 'cottage']]), skipBlock: (lx, lz, d) => d < 0.26 });
     } else if (poi.kind === 'townSuburb') {
       const base = { kind: poi.kind };
       void base;
@@ -225,7 +226,7 @@ export function planSettlements(T, seed = 77) {
         const pz = z + dir[1] * lx + dir[0] * lz;
         // face the lane: local +z towards the lane centre
         const toLane = [-(-dir[1] * side), -(dir[0] * side)];
-        const rot = Math.atan2(-(-dir[1]) * side * -1, 1) * 0 + Math.atan2(dir[1] * side * -1 * -1, dir[0] * side * -1 * -1) * 0 + Math.atan2(toLane[0], toLane[1]);
+        const rot = Math.atan2(toLane[0], toLane[1]);
         if (add(probe.kind, style, px, pz, padH, rot, { w: probe.w, d: probe.d, tier: 1, town: 'hamlet' + hamlets.length })) count++;
       }
     }
