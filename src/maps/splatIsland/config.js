@@ -47,21 +47,22 @@ export const ISLETS = [
 // Points of interest. `kind` selects a builder in poi.js.
 // tier = loot quality (1 low … 3 high). r = flattened pad radius.
 export const POI_DEFS = [
-  { id: 'plaza', name: 'Paintbrush Plaza', kind: 'town', x: 70, z: 130, r: 135, tier: 3 },
+  { id: 'plaza', name: 'Paintbrush Plaza', kind: 'townCity', x: 70, z: 130, r: 175, tier: 3 },
   { id: 'manor', name: 'Inkwell Manor', kind: 'lakeManor', x: LAKE.x, z: LAKE.z, r: 34, tier: 3, fixed: true, noRoad: true },
   { id: 'crown', name: 'Cinder Crown', kind: 'crater', x: VOLCANO.x, z: VOLCANO.z, r: 100, tier: 3, fixed: true, noRoad: true },
   { id: 'works', name: 'Magma Works', kind: 'factory', x: 560, z: -560, r: 120, tier: 3 },
   { id: 'lodge', name: 'Snowcap Lodge', kind: 'lodge', x: -930, z: 760, r: 85, tier: 3, prefer: 'high' },
-  { id: 'hollow', name: 'Slush Hollow', kind: 'snowVillage', x: -640, z: 1010, r: 100, tier: 2 },
-  { id: 'bazaar', name: 'Dune Bazaar', kind: 'bazaar', x: 960, z: 720, r: 105, tier: 3 },
+  { id: 'hollow', name: 'Slush Hollow', kind: 'townSnow', x: -640, z: 1010, r: 135, tier: 2 },
+  { id: 'bazaar', name: 'Dune Bazaar', kind: 'townDesert', x: 960, z: 720, r: 140, tier: 3 },
   { id: 'raceway', name: 'Dustbowl Raceway', kind: 'raceway', x: 1020, z: 260, r: 175, tier: 2 },
   { id: 'oasis', name: 'Oasis Springs', kind: 'oasis', x: 700, z: 1090, r: 75, tier: 1 },
-  { id: 'mossy', name: 'Mossy Hollow', kind: 'cabins', x: -930, z: -330, r: 85, tier: 2 },
+  { id: 'mossy', name: 'Mossy Hollow', kind: 'townForest', x: -930, z: -330, r: 150, tier: 2 },
   { id: 'mill', name: 'Timber Mill', kind: 'sawmill', x: -560, z: -930, r: 90, tier: 2 },
   { id: 'gloom', name: 'Gloomwood Manor', kind: 'mansion', x: -1000, z: -980, r: 85, tier: 3 },
   { id: 'farm', name: "Farmer's Fields", kind: 'farm', x: 360, z: 760, r: 150, tier: 1 },
   { id: 'windmill', name: 'Windmill Ridge', kind: 'windmill', x: 420, z: -250, r: 80, tier: 2, prefer: 'high' },
-  { id: 'docks', name: 'Breakwater Docks', kind: 'docks', x: 150, z: 1330, r: 100, tier: 3, coast: [0.12, 1] },
+  { id: 'docks', name: 'Breakwater Docks', kind: 'docks', x: 150, z: 1330, r: 130, tier: 3, coast: [0.12, 1] },
   { id: 'lighthouse', name: 'Lighthouse Point', kind: 'lighthouse', x: -1200, z: -1180, r: 42, tier: 1, coast: [-0.7, -0.7] },
+  { id: 'maple', name: 'Maple Court', kind: 'townSuburb', x: -560, z: 150, r: 140, tier: 2 },
   { id: 'radio', name: 'Radio Tower Hill', kind: 'radio', x: 380, z: 220, r: 60, tier: 2, prefer: 'high' }
 ];

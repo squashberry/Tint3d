@@ -576,7 +576,7 @@ export function buildHouse(spec, lod, out) {
     hb.box('solid', (h.x0 + h.x1) / 2, y, h.z1 + 0.04, h.x1 - h.x0, 1.0, 0.05, 0x7a5232, 0, true);
   }
   // rooms: furniture + lamps
-  if (lod === 0) for (const r of lay.rooms) furnish(hb, r, { avoid: lay.stairRect && r.f === 0 ? stairBox(lay.stairRect) : null });
+  if (lod === 0 || lod === 'collide') for (const r of lay.rooms) furnish(hb, r, { avoid: lay.stairRect && r.f === 0 ? stairBox(lay.stairRect) : null });
   else for (const r of lay.rooms) furnishLoot(hb, r);
   // front porch details
   if (spec.kind !== 'warehouse') {
