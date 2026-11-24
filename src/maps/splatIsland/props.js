@@ -5,7 +5,7 @@ import { mulberry32, makeNoise, clamp, lerp } from './noise.js';
 import * as C from './config.js';
 
 export const PROP_TYPES = ['pine', 'pineSnow', 'oak', 'palm', 'cactus', 'dead', 'rock', 'bush'];
-export const CHUNKS = 4; // props are bucketed into CHUNKS x CHUNKS instanced meshes
+export const CHUNKS = 12; // props are bucketed into CHUNKS x CHUNKS cells (streamed + distance culled)
 
 export function makePropTemplates(seed = 5) {
   const rand = mulberry32(seed);
@@ -66,6 +66,42 @@ export function makePropTemplates(seed = 5) {
   m = new MeshBuilder();
   m.blob(0, 0.55, 0, 1.0, 0.75, 1.0, 0x5aa84a, rand, 0.2, 1);
   m.blob(0.7, 0.4, 0.3, 0.6, 0.5, 0.6, 0x6bb857, rand, 0.2, 1);
+  t.bush = m;
+  return t;
+}
+
+export function makePropTemplatesLOD1(seed = 5) {
+  const rand = mulberry32(seed + 1);
+  const t = {};
+  const trunk = 0x6b4a32;
+  let m = new MeshBuilder();
+  m.cyl(0, 0, 0, 0.35, 1.8, trunk, 5, 0.3);
+  m.cone(0, 1.2, 0, 2.4, 6.6, 0x34874f, 6);
+  t.pine = m;
+  m = new MeshBuilder();
+  m.cyl(0, 0, 0, 0.35, 1.8, trunk, 5, 0.3);
+  m.cone(0, 1.2, 0, 2.4, 4.6, 0x3a6e57, 6);
+  m.cone(0, 4.2, 0, 1.7, 3.0, 0xf2f8fb, 6);
+  t.pineSnow = m;
+  m = new MeshBuilder();
+  m.cyl(0, 0, 0, 0.45, 3.2, trunk, 5, 0.35);
+  m.blob(0, 5.2, 0, 3.3, 2.9, 3.3, 0x5ab04b, rand, 0.15, 0);
+  t.oak = m;
+  m = new MeshBuilder();
+  m.beam(0, 0, 0, 0.9, 6.2, 0.3, 0.6, 0x9a7a52);
+  m.cone(0.9, 5.2, 0.3, 3.3, 1.8, 0x4fae52, 6);
+  t.palm = m;
+  m = new MeshBuilder();
+  m.cyl(0, 0, 0, 0.6, 4.6, 0x5fa05a, 5, 0.5);
+  t.cactus = m;
+  m = new MeshBuilder();
+  m.cyl(0, 0, 0, 0.42, 5.2, 0x4a3a34, 4, 0.16);
+  t.dead = m;
+  m = new MeshBuilder();
+  m.blob(0, 0.5, 0, 1.6, 1.0, 1.4, 0x8d919b, rand, 0.3, 0);
+  t.rock = m;
+  m = new MeshBuilder();
+  m.blob(0, 0.55, 0, 1.2, 0.85, 1.2, 0x5aa84a, rand, 0.2, 0);
   t.bush = m;
   return t;
 }
@@ -184,6 +220,24 @@ export function scatterProps(T, P, seed = 7) {
       if (T.heightAt(x, z) < 2.5 || isBlocked(x, z) || T.slopeAt(x, z) > 0.2) continue;
       T.biomeWeightsAt(x, z, w5);
       if (w5[0] + w5[1] > 0.6 && rand() < 0.1) add('bush', x, z, 0.8 + rand() * 0.7, 0.12);
+    }
+  }
+
+  // dense undergrowth ring around the hidden single houses ("a few in the bushes")
+  for (const ring of P.bushRings || []) {
+    for (let k = 0; k < 20; k++) {
+      const a = (k / 20) * Math.PI * 2 + rand() * 0.3;
+      const rad = ring.r + 1 + rand() * 7;
+      const x = ring.x + Math.cos(a) * rad;
+      const z = ring.z + Math.sin(a) * rad;
+      if (T.heightAt(x, z) < 2) continue;
+      const q = rand();
+      if (q < 0.6) { add('bush', x, z, 0.9 + rand() * 0.9, 0.12); continue; }
+      T.biomeWeightsAt(x, z, w5);
+      let b = 0;
+      for (let j = 1; j < 5; j++) if (w5[j] > w5[b]) b = j;
+      const type = b === 2 ? 'pineSnow' : b === 3 ? 'cactus' : b === 1 ? (rand() < 0.6 ? 'pine' : 'oak') : 'oak';
+      add(type, x, z, 0.9 + rand() * 0.7, 0.1, 0.55);
     }
   }
 

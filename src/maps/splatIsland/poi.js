@@ -111,6 +111,79 @@ export function buildPOIs(T, seed = 99) {
 
   // ------------------------------------------------------------------ POI builders
   const builders = {
+    townCity(poi) {
+      const { x, z, y } = poi;
+      mb.cyl(x, y, z, 5.5, 0.9, 0xcfd3dc, 20);
+      mb.cyl(x, y + 0.5, z, 4.6, 0.5, 0x58c6e8, 20);
+      mb.cyl(x, y, z, 1.0, 3.4, 0xcfd3dc, 8);
+      for (let k = 0; k < 5; k++) mb.blob(x + Math.cos(k * 1.26) * 1.2, y + 3.8 + (k % 2) * 0.8, z + Math.sin(k * 1.26) * 1.2, 1.0, 0.8, 1.0, [0xff6b81, 0x2ec4b6, 0xffd166, 0x7b61ff, 0x4dabf7][k], rand);
+      addCollider(poi, x, z, 11, 11, 0, y, y + 4);
+      for (let k = 0; k < 16; k++) { const a = (k / 16) * Math.PI * 2; lamp(x + Math.cos(a) * 20, z + Math.sin(a) * 20); }
+    },
+
+    townDesert(poi) {
+      const { x, z, y } = poi;
+      mb.cyl(x, y, z, 2.6, 1.2, 0xcfc3a5, 14);
+      mb.cyl(x, y + 1.0, z, 2.0, 0.5, 0x3a8dbf, 14);
+      const awn = [[0xe4572e, 0xf7f0e0], [0x2a9d8f, 0xf7f0e0], [0xf2b134, 0xf7f0e0], [0x6c5ce7, 0xf7f0e0]];
+      for (let k = 0; k < 9; k++) {
+        const a = (k / 9) * Math.PI * 2;
+        const sx = x + Math.cos(a) * 17;
+        const sz = z + Math.sin(a) * 17;
+        const sy = gy(sx, sz);
+        const c = awn[k % 4];
+        for (const [ox, oz] of [[-2.2, -1.4], [2.2, -1.4], [-2.2, 1.4], [2.2, 1.4]]) mb.box(sx + ox, sy, sz + oz, 0.2, 2.6, 0.2, 0, 0x5a3d28);
+        mb.box(sx, sy + 2.6, sz, 5.4, 0.2, 3.8, a, c[0]);
+        mb.box(sx, sy + 2.62, sz, 5.4, 0.2, 1.3, a, c[1]);
+        mb.box(sx, sy, sz, 3.6, 1.1, 1.4, a, 0x8a5d3b);
+        addCollider(poi, sx, sz, 3.6, 1.4, a, sy, sy + 1.1);
+        addLoot(poi, sx, sy + 1.2, sz + 2.4, 'floor');
+      }
+      for (const s of [-1, 1]) {
+        const mx = x + s * 50;
+        const mz = z - 46;
+        const g = gy(mx, mz);
+        mb.cyl(mx, g, mz, 3.2, 26, 0xf3e2c0, 12, 2.6);
+        mb.cyl(mx, g + 26, mz, 3.8, 0.8, 0xe4572e, 12);
+        mb.cone(mx, g + 26.8, mz, 3, 6, 0x2a9d8f, 12);
+        addCollider(poi, mx, mz, 7, 7, 0, g, g + 30);
+      }
+    },
+
+    townSnow(poi) {
+      const { x, z } = poi;
+      for (let k = 0; k < 9; k++) {
+        const a = rand() * Math.PI * 2;
+        const rd = rr(32, 46);
+        const sx = x + Math.cos(a) * rd;
+        const sz = z + Math.sin(a) * rd;
+        const sy = gy(sx, sz);
+        mb.blob(sx, sy + 0.8, sz, 0.9, 0.9, 0.9, 0xffffff, rand, 0.04);
+        mb.blob(sx, sy + 2.0, sz, 0.65, 0.65, 0.65, 0xffffff, rand, 0.04);
+        mb.cone(sx, sy + 1.9, sz + 0.6, 0.12, 0.7, 0xff8c42, 5);
+      }
+      for (let k = 0; k < 8; k++) lamp(x + Math.cos(k * 0.785) * 50, z + Math.sin(k * 0.785) * 50);
+    },
+
+    townForest(poi) {
+      const { x, z, y } = poi;
+      mb.cyl(x + 4, y, z + 3, 2.0, 0.5, 0x4a4f5c, 10);
+      mb.cone(x + 4, y + 0.4, z + 3, 0.9, 1.8, 0xff8c42, 6);
+      const tx = x - 5;
+      const tz = z - 4;
+      for (const [ox, oz] of [[-2, -2], [2, -2], [-2, 2], [2, 2]]) mb.box(tx + ox, y, tz + oz, 0.5, 11, 0.5, 0, 0x5a3d28);
+      mb.box(tx, y + 10.5, tz, 6, 0.4, 6, 0, 0x7a5232);
+      mb.box(tx, y + 10.9, tz, 4.4, 2.6, 4.4, 0, 0x8a5d3b);
+      mb.pyramid(tx, y + 13.5, tz, 4.4, 4.4, 2.2, 0, 0x3f7a62, 0.5);
+      addCollider(poi, tx, tz, 6, 6, 0, y, y + 15);
+      addLoot(poi, tx, y + 11, tz, 'chest');
+    },
+
+    townSuburb(poi) {
+      const { x, z } = poi;
+      for (let lx = -90; lx <= 90; lx += 30) for (const zz of [-30, 30]) lamp(x + lx, z + zz - 4.2);
+    },
+
     town(poi) {
       const S = 44;
       const lines = [-2, -1, 0, 1, 2];

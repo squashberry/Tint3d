@@ -24,7 +24,7 @@ const ROCK_RED = lin(0xc9774a);
 const SAND = lin(0xf0dca0);
 const SHALLOW = lin(0x59d6c9);
 const DEEP = lin(0x1f78b4);
-const PAD_GROUND = { town: 0xa8adb8, factory: 0x8d939d, docks: 0x9a9fa8, bazaar: 0xd9bd8a, raceway: 0x9aa0aa, lodge: 0xe8eef5, sawmill: 0xb59a74 };
+const PAD_GROUND = { townCity: 0xa8adb8, townDesert: 0xd9bd8a, townSnow: 0xe8eef5, townForest: 0xa58b64, townSuburb: 0xa9c58a, town: 0xa8adb8, factory: 0x8d939d, docks: 0x9a9fa8, bazaar: 0xd9bd8a, raceway: 0x9aa0aa, lodge: 0xe8eef5, sawmill: 0xb59a74 };
 
 export function terrainColors(T, seed) {
   const nz = makeNoise(seed + 5);
@@ -88,23 +88,48 @@ function buildTerrainChunks(T, colors, mat) {
   group.name = 'terrain';
   const H = T.heights;
   const n = CHUNK_CELLS + 1;
-  const idx = new Uint16Array(CHUNK_CELLS * CHUNK_CELLS * 6);
-  let k = 0;
-  for (let lz = 0; lz < CHUNK_CELLS; lz++) {
-    for (let lx = 0; lx < CHUNK_CELLS; lx++) {
-      const i00 = lz * n + lx;
-      const i10 = i00 + 1;
-      const i01 = i00 + n;
-      const i11 = i01 + 1;
-      idx[k++] = i00; idx[k++] = i01; idx[k++] = i10;
-      idx[k++] = i10; idx[k++] = i01; idx[k++] = i11;
+  const gridIdx = (stride) => {
+    const a = [];
+    for (let lz = 0; lz < CHUNK_CELLS; lz += stride) {
+      for (let lx = 0; lx < CHUNK_CELLS; lx += stride) {
+        const i00 = lz * n + lx;
+        const i10 = i00 + stride;
+        const i01 = i00 + stride * n;
+        const i11 = i01 + stride;
+        a.push(i00, i01, i10, i10, i01, i11);
+      }
     }
-  }
+    return a;
+  };
+  const top = [];
+  const bottom = [];
+  const left = [];
+  const right = [];
+  for (let k = 0; k < n; k++) { top.push(k); bottom.push((n - 1) * n + k); left.push(k * n); right.push(k * n + n - 1); }
+  const border = [...new Set([...top, ...bottom, ...left, ...right])];
+  const twin = new Map();
+  border.forEach((v, i) => twin.set(v, n * n + i));
+  const skirtIdx = (stride) => {
+    const a = [];
+    for (const side of [top, bottom, left, right]) {
+      for (let k = 0; k < side.length - 1; k += stride) {
+        const A = side[k];
+        const B = side[k + stride];
+        const tA = twin.get(A);
+        const tB = twin.get(B);
+        a.push(A, B, tB, A, tB, tA, A, tB, B, A, tA, tB);
+      }
+    }
+    return a;
+  };
+  const lods = [1, 2, 4].map((st) => new THREE.BufferAttribute(new Uint16Array([...gridIdx(st), ...skirtIdx(st)]), 1));
+  const chunks = [];
+  const nv = n * n + border.length;
   for (let cz = 0; cz < N / CHUNK_CELLS; cz++) {
     for (let cx = 0; cx < N / CHUNK_CELLS; cx++) {
-      const pos = new Float32Array(n * n * 3);
-      const nor = new Float32Array(n * n * 3);
-      const col = new Float32Array(n * n * 3);
+      const pos = new Float32Array(nv * 3);
+      const nor = new Float32Array(nv * 3);
+      const col = new Float32Array(nv * 3);
       for (let lz = 0; lz < n; lz++) {
         for (let lx = 0; lx < n; lx++) {
           const ix = cx * CHUNK_CELLS + lx;
@@ -121,22 +146,32 @@ function buildTerrainChunks(T, colors, mat) {
           col[o] = colors[gi * 3]; col[o + 1] = colors[gi * 3 + 1]; col[o + 2] = colors[gi * 3 + 2];
         }
       }
+      border.forEach((v, i) => {
+        const o = (n * n + i) * 3;
+        pos[o] = pos[v * 3]; pos[o + 1] = pos[v * 3 + 1] - 14; pos[o + 2] = pos[v * 3 + 2];
+        nor[o] = nor[v * 3]; nor[o + 1] = nor[v * 3 + 1]; nor[o + 2] = nor[v * 3 + 2];
+        col[o] = col[v * 3]; col[o + 1] = col[v * 3 + 1]; col[o + 2] = col[v * 3 + 2];
+      });
       const g = new THREE.BufferGeometry();
       g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
       g.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
       g.setAttribute('color', new THREE.BufferAttribute(col, 3));
-      g.setIndex(new THREE.BufferAttribute(idx, 1));
+      g.setIndex(lods[0]);
       g.computeBoundingSphere();
       g.computeBoundingBox();
       const mesh = new THREE.Mesh(g, mat);
       mesh.name = `terrain_${cx}_${cz}`;
+      mesh.receiveShadow = true;
       group.add(mesh);
+      const ccx = -HALF + (cx + 0.5) * CHUNK_CELLS * CELL;
+      const ccz = -HALF + (cz + 0.5) * CHUNK_CELLS * CELL;
+      chunks.push({ mesh, x: ccx, z: ccz, lod: 0, lods });
     }
   }
-  return group;
+  return { group, chunks };
 }
 
-function geometryFromBuilder(b) {
+export function geometryFromBuilder(b) {
   const a = b.toArrays();
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(a.positions, 3));
@@ -222,7 +257,8 @@ export function buildIslandObject(T, P, S, seed = 20260) {
   const track = (o) => { disposables.push(o); return o; };
 
   const terrainMat = track(new THREE.MeshLambertMaterial({ vertexColors: true }));
-  root.add(buildTerrainChunks(T, terrainColors(T, seed), terrainMat));
+  const terrain = buildTerrainChunks(T, terrainColors(T, seed), terrainMat);
+  root.add(terrain.group);
 
   const seaMat = track(new THREE.MeshStandardMaterial({ color: 0x3fc1da, transparent: true, opacity: 0.8, roughness: 0.3, metalness: 0 }));
   const sea = new THREE.Mesh(track(new THREE.PlaneGeometry(60000, 60000)), seaMat);
@@ -279,35 +315,14 @@ export function buildIslandObject(T, P, S, seed = 20260) {
   }
   for (const lr of P.localRoads) {
     const pts = lr.pts.map((p) => ({ x: p[0], z: p[1] }));
-    const c = lr.kind === 'track' ? trackCol : asphalt;
+    const c = lr.kind === 'track' ? trackCol : lr.color != null ? lin(lr.color) : asphalt;
     ribbons.push(ribbon(pts, () => lr.width, (i) => T.heightAt(pts[i].x, pts[i].z) + 0.16, () => c));
   }
   const roads = new THREE.Mesh(track(mergeRibbons(ribbons)), roadMat);
   roads.name = 'roads';
   root.add(roads);
 
-  // buildings & landmarks (one merged mesh)
-  const buildings = new THREE.Mesh(track(geometryFromBuilder(P.mb)), track(new THREE.MeshLambertMaterial({ vertexColors: true })));
-  buildings.name = 'buildings';
-  root.add(buildings);
-
-  // vegetation, instanced per spatial chunk
-  const templates = makePropTemplates(seed);
-  const propGeos = {};
-  for (const k in templates) propGeos[k] = track(geometryFromBuilder(templates[k]));
-  const propMat = track(new THREE.MeshLambertMaterial({ vertexColors: true }));
-  const propGroup = new THREE.Group();
-  propGroup.name = 'props';
-  for (const inst of S.instances) {
-    const im = new THREE.InstancedMesh(propGeos[inst.type], propMat, inst.count);
-    im.instanceMatrix.array.set(inst.matrices);
-    im.instanceMatrix.needsUpdate = true;
-    im.instanceColor = new THREE.InstancedBufferAttribute(inst.colors, 3);
-    im.name = `${inst.type}_${inst.chunk}`;
-    im.computeBoundingSphere();
-    propGroup.add(im);
-  }
-  root.add(propGroup);
+  // landmarks, houses and vegetation are streamed / culled by WorldStreamer (streaming.js)
 
   // animated windmill + turbines
   const spinners = [];
@@ -350,5 +365,5 @@ export function buildIslandObject(T, P, S, seed = 20260) {
     seaMat.color.setHSL(0.5 + 0.004 * Math.sin(t * 0.4), 0.65, 0.55 + 0.01 * Math.sin(t * 0.9));
   }
   function dispose() { for (const d of disposables) d.dispose?.(); }
-  return { group: root, update, dispose };
+  return { group: root, update, dispose, terrainChunks: terrain.chunks };
 }
