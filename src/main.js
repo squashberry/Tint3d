@@ -3,6 +3,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import './style.css';
 import './menu/menu.css';
+import './hud/hud.css';
 import { loadTracker } from './boot/loadTracker.js';
 import { createOperatorGroup, attachRigid } from './operators/index.js';
 import { WEAPONS, BOT_WEAPONS } from './gameplay/weapons.js';
@@ -3581,9 +3582,9 @@ function updateCamera(delta) {
   const right = new THREE.Vector3(Math.cos(yaw), 0, Math.sin(yaw)).normalize();
   const sliding = !!player.sliding;
   const diving = !!player.diving;
-  const target = player.position.clone().add(new THREE.Vector3(0, diving ? 0.62 : (sliding ? 0.98 : 1.38), 0));
-  const distance = diving ? 4.7 : (sliding ? 5.25 : 6.35);
-  const height = diving ? 1.2 : (sliding ? 1.48 : 2.18);
+  const target = player.position.clone().add(new THREE.Vector3(0, diving ? 0.6 : (sliding ? 0.95 : 1.42), 0));
+  const distance = diving ? 3.3 : (sliding ? 3.7 : (isTouch ? 3.9 : 4.3));
+  const height = diving ? 0.95 : (sliding ? 1.2 : 1.55);
   const shoulder = 0.48;
   const lateralVelocity = player.velocity.x * right.x + player.velocity.z * right.z;
   const forwardVelocity = player.velocity.x * forward.x + player.velocity.z * forward.z;
@@ -3609,7 +3610,7 @@ function updateCamera(delta) {
     .add(new THREE.Vector3(0, 0.10 - pitch * 4.8 + cameraRecoil * 2.0, 0));
   cameraRecoil = Math.max(0, cameraRecoil - delta * 0.22);
   camera.lookAt(lookTarget);
-  const wantedFov = diving ? 76 : (sliding ? 79 : (player.sprinting || player.flow > 0 ? 72 : 65));
+  const wantedFov = diving ? 66 : (sliding ? 70 : (player.sprinting || player.flow > 0 ? 62 : 56));
   camera.fov = THREE.MathUtils.damp(camera.fov, wantedFov, sliding ? 7.2 : 8.5, delta);
   camera.updateProjectionMatrix();
 }
@@ -3913,6 +3914,36 @@ window.tint3d = Object.assign(window.tint3d || {}, { startRegularMatch: () => st
 function menuOpen() {
   return !gameStarted && !introActive && !document.body.classList.contains('splash-on') && !ui.start.classList.contains('hidden');
 }
+// ---- compact HUD extras: compass strip and squad chips -----------------------------------------
+const hudCompass = document.getElementById('compass');
+const chipYou = document.getElementById('chip-you');
+const chipRival = document.getElementById('chip-rival');
+const chipSplats = document.getElementById('chip-splats');
+let hudClock = 0;
+function updateHudExtras(delta) {
+  hudClock += delta;
+  if (hudClock < 0.066 || !gameStarted) return;
+  hudClock = 0;
+  if (hudCompass) {
+    const heading = (((-yaw * 180) / Math.PI) % 360 + 360) % 360;
+    let html = '';
+    for (let k = 0; k < 24; k++) {
+      const deg = k * 15;
+      const diff = ((deg - heading + 540) % 360) - 180;
+      if (Math.abs(diff) > 62) continue;
+      const label = { 0: 'N', 90: 'E', 180: 'S', 270: 'W' }[deg] ?? (deg % 45 === 0 ? String(deg) : '');
+      const cardinal = deg % 90 === 0;
+      html += `<span class="${cardinal ? 'c' : ''}" style="left:${50 + (diff / 62) * 50}%">${label || '·'}</span>`;
+    }
+    hudCompass.innerHTML = html;
+  }
+  let you = 0;
+  let rival = 0;
+  for (const actor of actors) { if (actor.respawn > 0) continue; if (actor.team === player.team) you++; else rival++; }
+  if (chipYou) chipYou.textContent = String(you);
+  if (chipRival) chipRival.textContent = String(rival);
+  if (chipSplats) chipSplats.textContent = String(player.eliminations || 0);
+}
 let menuTime = 0;
 const menuTarget = new THREE.Vector3();
 const menuDesired = new THREE.Vector3();
@@ -4142,6 +4173,7 @@ function animate() {
   } else {
     if (menuOpen()) updateMenuCamera(delta);
     else if (!introActive) updateCamera(delta);
+    updateHudExtras(delta);
     if (!paused) updateProjectiles(delta);
   }
   updateParticles(delta);

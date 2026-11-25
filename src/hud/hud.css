@@ -1,0 +1,49 @@
+/* ===== Compact HUD (desktop + mobile): small, out of the way, Warzone-style layout ===== */
+/* Scoreboard + timer: slim capsule at the top centre */
+.match-hud { position: fixed !important; top: 6px !important; left: 50% !important; right: auto !important; transform: translateX(-50%) !important; zoom: .56; margin: 0 !important; }
+/* Top buttons: small icons just left of the minimap; brand and stage label hidden */
+.topbar { position: fixed !important; top: 8px !important; left: auto !important; right: 140px !important; width: auto !important; padding: 0 !important; background: none !important; border: 0 !important; box-shadow: none !important; zoom: .8; }
+.topbar > *:not(:has(#sound-toggle)) { display: none !important; }
+/* Minimap: small round radar top-right */
+.left-rail { position: fixed !important; left: auto !important; right: 10px !important; top: 8px !important; bottom: auto !important; width: auto !important; }
+.radar-card { width: 118px !important; height: 118px !important; padding: 0 !important; border-radius: 50% !important; overflow: hidden !important; border: 2px solid rgba(255,255,255,.55) !important; box-shadow: 0 6px 18px rgba(0,0,0,.45) !important; background: rgba(6,12,34,.55) !important; }
+.radar-head, .radar-foot, .left-rail .stat-pill { display: none !important; }
+.radar-card canvas { width: 100% !important; height: 100% !important; display: block !important; }
+/* Compass strip */
+.compass { display: none; position: fixed; top: 34px; left: 50%; transform: translateX(-50%); width: min(300px, 38vw); height: 24px; z-index: 6; pointer-events: none; overflow: hidden;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 22%, #000 78%, transparent); mask-image: linear-gradient(90deg, transparent, #000 22%, #000 78%, transparent);
+  font: 800 11px/24px 'Barlow Condensed', sans-serif; letter-spacing: .06em; color: rgba(255,255,255,.8); text-shadow: 0 1px 3px rgba(0,0,0,.8); }
+.compass span { position: absolute; top: 0; transform: translateX(-50%); }
+.compass span.c { color: #ffd23c; font-size: 14px; }
+.compass::after { content: ''; position: absolute; left: 50%; bottom: 0; margin-left: -4px; border: 4px solid transparent; border-bottom-color: #ffd23c; }
+/* Squad chips (top-left): crew alive / rivals alive / your splats */
+.squad-chips { display: none; position: fixed; top: 8px; left: 10px; gap: 8px; z-index: 6; pointer-events: none; }
+.squad-chips .chip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px 3px 8px; border-radius: 999px; background: rgba(5,10,30,.62); border: 1px solid rgba(255,255,255,.28); font: 900 14px 'Barlow Condensed', sans-serif; color: #fff; }
+.squad-chips .chip i { font-style: normal; font-size: 11px; }
+.squad-chips .you i { color: #22dcec; } .squad-chips .rival i { color: #ff7652; } .squad-chips .kills i { color: #ffd23c; }
+body:has(.start-screen.menu.hidden) .compass { display: block; }
+body:has(.start-screen.menu.hidden) .squad-chips { display: flex; }
+body.cine-on .compass, body.cine-on .squad-chips { opacity: 0 !important; }
+/* Bottom: tiny weapon chip, slim meters, faint key hint */
+.bottom-hud { position: fixed !important; inset: auto 0 0 0 !important; height: 0 !important; padding: 0 !important; background: none !important; border: 0 !important; box-shadow: none !important; pointer-events: none !important; }
+.bottom-hud .weapon-card { position: fixed !important; left: 12px !important; bottom: 10px !important; zoom: .58; pointer-events: none; }
+.bottom-hud .control-hint { position: fixed !important; left: 50% !important; bottom: 3px !important; transform: translateX(-50%) !important; zoom: .75; opacity: .5; white-space: nowrap; }
+.bottom-hud .player-meters { position: fixed !important; left: 50% !important; bottom: 20px !important; right: auto !important; transform: translateX(-50%) !important; width: min(300px, 34vw) !important; zoom: .7; }
+.player-meters .weapon-row { display: none !important; }
+/* Item tray: small bar above the meters */
+.item-tray { bottom: 62px !important; gap: 5px !important; }
+.item-slot { width: 42px !important; height: 42px !important; border-radius: 11px !important; font-size: 9px !important; }
+.item-slot b { font-size: 8px !important; }
+.item-slot .item-count { min-width: 13px !important; height: 13px !important; line-height: 13px !important; font-size: 9px !important; }
+/* Touch layout: smaller controls tucked into the corners */
+body.touch-device .control-hint, body.touch-device .weapon-card { display: none !important; }
+body.touch-device .bottom-hud .player-meters { bottom: 6px !important; width: min(220px, 28vw) !important; zoom: .62; }
+body.touch-device .mobile-controls { inset: auto 0 4px 0 !important; height: 156px !important; }
+#mobile-controls .joystick { width: 104px !important; height: 104px !important; left: max(14px, env(safe-area-inset-left)) !important; bottom: 4px !important; }
+#mobile-controls .touch-cluster { right: max(8px, env(safe-area-inset-right)) !important; bottom: 0 !important; transform: scale(.8) !important; transform-origin: right bottom !important; }
+#mobile-controls .tbtn-run { left: 26px !important; bottom: 116px !important; width: 54px !important; height: 32px !important; font-size: 9px !important; }
+body.touch-device .item-tray { left: auto !important; right: 10px !important; bottom: 132px !important; transform: none !important; gap: 4px !important; }
+body.touch-device .item-slot { width: 36px !important; height: 36px !important; border-radius: 9px !important; }
+body.touch-device .item-slot span { display: none !important; }
+body.touch-device .compass { top: 30px; width: min(240px, 34vw); }
+@media (max-height: 420px) { .match-hud { zoom: .5; } .radar-card { width: 96px !important; height: 96px !important; } body.touch-device .item-tray { bottom: 118px !important; } }
