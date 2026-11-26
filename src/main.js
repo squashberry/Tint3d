@@ -3419,7 +3419,7 @@ function animateActor(actor, moving, delta = 0.016) {
 
   if (c.animator && actor.group.visible) {
     // Distant bots skip the weapon-grip IK and finger pass.
-    const detail = actor.player || camera.position.distanceToSquared(actor.group.position) < 1444 ? 1 : 0;
+    const detail = actor.player || camera.position.distanceToSquared(actor.group.position) < (quality.lite ? 480 : 1444) ? 1 : 0;
     c.animator.update(delta, actor, c.weapon, {
       weaponBlend: c.weaponBlend,
       shotTimer: shot,
@@ -3920,6 +3920,7 @@ const chipYou = document.getElementById('chip-you');
 const chipRival = document.getElementById('chip-rival');
 const chipSplats = document.getElementById('chip-splats');
 let hudClock = 0;
+let miniFrame = 0;
 function updateHudExtras(delta) {
   hudClock += delta;
   if (hudClock < 0.066 || !gameStarted) return;
@@ -4178,7 +4179,7 @@ function animate() {
   }
   updateParticles(delta);
   updateRagdolls(delta);
-  updateMinimap(delta);
+  if (!quality.lite || (miniFrame = (miniFrame + 1) % 3) === 0) updateMinimap(delta);
   if (toastTimer > 0) {
     toastTimer -= delta;
     if (toastTimer <= 0) ui.toast.classList.remove('show');

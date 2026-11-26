@@ -8,10 +8,11 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
-export const TIER_ORDER = ['low', 'medium', 'high', 'veryhigh', 'max'];
-export const TIER_LABEL = { auto: 'AUTO', low: 'LOW', medium: 'MEDIUM', high: 'HIGH', veryhigh: 'VERY HIGH', max: 'MAX' };
+export const TIER_ORDER = ['optimised', 'low', 'medium', 'high', 'veryhigh', 'max'];
+export const TIER_LABEL = { auto: 'AUTO', optimised: 'OPTIMISED', low: 'LOW', medium: 'MEDIUM', high: 'HIGH', veryhigh: 'VERY HIGH', max: 'MAX' };
 
 const TIERS = {
+  optimised: { pixel: 0.75, shadow: 0, aniso: 1, bloom: 0, grade: false, env: 0, fx: 0.3, dust: 0, msaa: 0 },
   low:      { pixel: 0.85, shadow: 0,    aniso: 2,  bloom: 0,    grade: false, env: 0,    fx: 0.5,  dust: 0,   msaa: 0 },
   medium:   { pixel: 1.0,  shadow: 1024, aniso: 4,  bloom: 0,    grade: false, env: 0.38, fx: 0.75, dust: 0,   msaa: 0 },
   high:     { pixel: 1.25, shadow: 1536, aniso: 8,  bloom: 0.26, grade: true,  env: 0.5,  fx: 1.0,  dust: 90,  msaa: 4 },
@@ -35,6 +36,31 @@ const GRADE_SHADER = {
     }`
 };
 
+/**
+ * Rough hardware score from the GPU name, CPU cores and memory. Old integrated GPUs (Intel HD 2000-4000
+ * class), software renderers and small phones start on OPTIMISED, mid devices on LOW / MEDIUM.
+ */
+function detectProfile(renderer, isTouch) {
+  let gpu = '';
+  try {
+    const gl = renderer.getContext();
+    const info = gl.getExtension('WEBGL_debug_renderer_info');
+    gpu = info ? String(gl.getParameter(info.UNMASKED_RENDERER_WEBGL)) : '';
+  } catch { /* unknown GPU */ }
+  const cores = navigator.hardwareConcurrency || 4;
+  const memory = navigator.deviceMemory || 4;
+  let score = 0;
+  if (/SwiftShader|llvmpipe|Basic Render|Mali-4|Mali-T[0-6]|Adreno \(TM\) [2-4]\d\d|PowerVR|HD Graphics [2-4]\d{3}|GMA/i.test(gpu)) score += 2;
+  else if (/Intel/i.test(gpu) && !/Iris|Xe|Arc|UHD Graphics 6/i.test(gpu)) score += 1;
+  if (cores <= 2) score += 2; else if (cores <= 4) score += 1;
+  if (memory <= 2) score += 2; else if (memory <= 4) score += 1;
+  if (isTouch && Math.min(screen.width, screen.height) * (devicePixelRatio || 1) > 1400 && cores <= 6) score += 0.5;
+  if (score >= 3) return { score, gpu, start: 'optimised', cap: 'low' };
+  if (score >= 2) return { score, gpu, start: 'low', cap: 'medium' };
+  if (isTouch) return { score, gpu, start: 'medium', cap: 'high' };
+  return { score, gpu, start: 'high', cap: 'veryhigh' };
+}
+
 export class QualityManager {
   constructor({ renderer, scene, camera, sun, isTouch, onFx }) {
     this.renderer = renderer;
@@ -51,8 +77,11 @@ export class QualityManager {
     this.preference = 'auto';
     try { this.preference = localStorage.getItem('tint3d.quality') || 'auto'; } catch { /* storage is optional */ }
     if (this.preference !== 'auto' && !TIERS[this.preference]) this.preference = 'auto';
-    this.autoCap = isTouch ? 'high' : 'veryhigh';
-    this.tier = this.preference === 'auto' ? (isTouch ? 'medium' : 'high') : this.preference;
+    this.profile = detectProfile(renderer, isTouch);
+    this.autoCap = this.profile.cap;
+    this.dynScale = 1;
+    this.lite = false;
+    this.tier = this.preference === 'auto' ? this.profile.start : this.preference;
     this.frames = [];
     this.lastStamp = performance.now();
     this.goodWindows = 0;
@@ -75,7 +104,7 @@ export class QualityManager {
   setPreference(pref) {
     this.preference = pref;
     try { localStorage.setItem('tint3d.quality', pref); } catch { /* optional */ }
-    this.apply(pref === 'auto' ? (this.isTouch ? 'medium' : 'high') : pref);
+    this.apply(pref === 'auto' ? this.profile.start : pref);
     this.goodWindows = 0;
     this.cooldown = 3;
   }
@@ -145,8 +174,9 @@ export class QualityManager {
   apply(tierName) {
     const settings = TIERS[tierName];
     this.tier = tierName;
+    if (tierName !== 'optimised') this.dynScale = 1;
     const r = this.renderer;
-    r.setPixelRatio(Math.min(devicePixelRatio || 1, settings.pixel));
+    r.setPixelRatio(Math.min(devicePixelRatio || 1, settings.pixel) * this.dynScale);
     r.setSize(this.width, this.height);
 
     const wantShadow = settings.shadow > 0;
@@ -195,13 +225,34 @@ export class QualityManager {
     } else if (this.dust) {
       this.dust.visible = false;
     }
+    // Low tiers also pull in the far plane and fog so distant geometry is never drawn.
+    this.lite = tierName === 'optimised' || tierName === 'low';
+    if (this._farOrig === undefined) {
+      this._farOrig = this.camera.far;
+      this._fogFar = this.scene.fog?.far;
+      this._fogNear = this.scene.fog?.near;
+    }
+    const far = tierName === 'optimised' ? 130 : tierName === 'low' ? 190 : this._farOrig;
+    if (this.camera.far !== far) { this.camera.far = far; this.camera.updateProjectionMatrix(); }
+    if (this.scene.fog) {
+      this.scene.fog.far = tierName === 'optimised' ? 125 : tierName === 'low' ? 170 : this._fogFar;
+      this.scene.fog.near = tierName === 'optimised' ? 40 : this._fogNear;
+    }
     this.onFx(settings.fx);
+  }
+
+  /** Re-apply the pixel ratio after the dynamic resolution scale changed. */
+  refreshPixelRatio() {
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio || 1, TIERS[this.tier].pixel) * this.dynScale);
+    this.renderer.setSize(this.width, this.height);
+    this.composer?.setPixelRatio(this.renderer.getPixelRatio());
+    this.composer?.setSize(this.width, this.height);
   }
 
   resize(width, height) {
     this.width = width;
     this.height = height;
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio || 1, TIERS[this.tier].pixel));
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio || 1, TIERS[this.tier].pixel) * this.dynScale);
     this.renderer.setSize(width, height);
     this.composer?.setPixelRatio(this.renderer.getPixelRatio());
     this.composer?.setSize(width, height);
@@ -232,6 +283,18 @@ export class QualityManager {
     const avg = this.frames.reduce((a, b) => a + b, 0) / this.frames.length;
     this.frames.length = 0;
     const index = TIER_ORDER.indexOf(this.tier);
+    // OPTIMISED also scales the render resolution live (down to 50%) to hold a playable frame rate.
+    if (this.tier === 'optimised' && avg > 30 && this.dynScale > 0.5) {
+      this.dynScale = Math.max(0.5, this.dynScale - 0.08);
+      this.refreshPixelRatio();
+      this.cooldown = 1.5;
+      return;
+    }
+    if (this.tier === 'optimised' && avg < 17 && this.dynScale < 1) {
+      this.dynScale = Math.min(1, this.dynScale + 0.05);
+      this.refreshPixelRatio();
+      return;
+    }
     if (avg > 24 && index > 0) {
       this.apply(TIER_ORDER[index - 1]);
       this.goodWindows = 0;
