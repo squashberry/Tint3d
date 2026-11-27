@@ -15,7 +15,7 @@ const mix = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[
 const BIOME_RGB = [rgb(0x86d65a), rgb(0x3f9a4a), rgb(0xf0f6fb), rgb(0xeccb83), rgb(0x4d4752)];
 
 export function renderMinimap(T, extra = {}, size = 1024) {
-  const { localRoads = [], landmarks = T.pois, labels = true } = extra;
+  const { localRoads = [], landmarks = T.pois, labels = true, houses = [] } = extra;
   const canvas = document.createElement('canvas');
   canvas.width = size;
   canvas.height = size;
@@ -67,6 +67,8 @@ export function renderMinimap(T, extra = {}, size = 1024) {
   for (const r of T.roads) line(r.points, size / 380, 'rgba(255,255,255,0.85)');
   for (const lr of localRoads) line(lr.pts.map((p) => ({ x: p[0], z: p[1] })), size / 520, 'rgba(255,255,255,0.7)');
 
+  ctx.fillStyle = 'rgba(255,255,255,0.9)';
+  for (const h of houses) ctx.fillRect(mx(h.x) - size / 900, mz(h.z) - size / 900, size / 430, size / 430);
   if (labels) {
     ctx.textAlign = 'center';
     ctx.font = `700 ${Math.round(size / 78)}px system-ui, sans-serif`;

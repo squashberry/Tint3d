@@ -8,20 +8,18 @@
     html, body { margin: 0; height: 100%; overflow: hidden; background: #8fd3f0; font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; color: #fff; }
     canvas#view { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
     .panel { position: fixed; background: rgba(18, 28, 40, 0.72); backdrop-filter: blur(6px); border-radius: 12px; padding: 10px 14px; font-size: 13px; line-height: 1.45; }
-    #title { top: 12px; left: 12px; max-width: 280px; }
+    #title { top: 12px; left: 12px; max-width: 300px; }
     #title h1 { margin: 0 0 4px; font-size: 18px; letter-spacing: 1px; }
-    #title small { opacity: 0.8; }
-    #pois { top: 12px; right: 12px; max-height: 56vh; overflow: auto; width: 200px; }
+    #title small { opacity: 0.85; }
+    #pois { top: 12px; right: 12px; max-height: 56vh; overflow: auto; width: 210px; }
     #pois button { display: block; width: 100%; text-align: left; background: none; border: 0; color: #fff; padding: 4px 2px; font: inherit; cursor: pointer; border-radius: 6px; }
     #pois button:hover { background: rgba(255, 255, 255, 0.16); }
     #mmwrap { position: fixed; left: 12px; bottom: 12px; width: 200px; height: 200px; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 18px rgba(0,0,0,.35); transition: all .2s; cursor: pointer; }
     #mmwrap.big { left: 50%; top: 50%; bottom: auto; width: min(86vmin, 820px); height: min(86vmin, 820px); transform: translate(-50%, -50%); z-index: 5; }
     #mmwrap canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
-    #help { right: 12px; bottom: 12px; text-align: right; }
+    #help { right: 12px; bottom: 12px; text-align: right; max-width: 360px; }
+    #hud { left: 12px; bottom: 224px; font: 11px/1.5 ui-monospace, Menlo, monospace; white-space: pre; max-width: 430px; }
     #loading { position: fixed; inset: 0; display: grid; place-items: center; background: #7cc8ea; z-index: 10; font-size: 20px; letter-spacing: 2px; }
-    .touch { position: fixed; right: 16px; bottom: 120px; display: none; gap: 10px; flex-direction: column; }
-    .touch button { width: 64px; height: 64px; border-radius: 50%; border: 0; background: rgba(18,28,40,.7); color: #fff; font-size: 22px; }
-    @media (pointer: coarse) { .touch { display: flex; } #help { display: none; } #pois { width: 150px; max-height: 40vh; } }
   </style>
 </head>
 <body>
@@ -29,9 +27,9 @@
   <div id="loading">BUILDING SPLAT ISLAND…</div>
   <div class="panel" id="title"><h1>SPLAT ISLAND</h1><small id="stats"></small></div>
   <div class="panel" id="pois"></div>
+  <div class="panel" id="hud"></div>
   <div id="mmwrap" title="Click or press M to enlarge"><canvas id="mmbase"></canvas><canvas id="mmdot"></canvas></div>
-  <div class="panel" id="help">Click to look · WASD move · Q/E down/up · Shift fast · wheel speed<br />M map · H hide UI · 1–9 teleport</div>
-  <div class="touch"><button id="tFwd">▲</button><button id="tBack">▼</button></div>
+  <div class="panel" id="help">Click to look · WASD move · Shift fast · Q/E down/up (fly)<br />V walk ↔ fly (walk enters houses, climbs stairs) · G graphics tier<br />C freeze culling (then fly out and watch it) · M map · H hide UI · 1–9 teleport</div>
   <script type="module" src="/src/maps/splatIsland/preview.js"></script>
 </body>
 </html>

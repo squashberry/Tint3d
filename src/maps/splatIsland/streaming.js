@@ -22,6 +22,7 @@ const { HALF, WORLD } = C;
 
 // Ranges follow the game's QualityManager tiers (low / medium / high / veryhigh / max).
 export const PROFILES = {
+  optimised: { houseL0: 48, houseL1: 280, houseL2: 850, treeL0: 110, treeL1: 450, small: 55, loot: 20, terrain: [420, 950], static: 850, budgetMs: 1.5, clouds: 8 },
   low: { houseL0: 70, houseL1: 420, houseL2: 1300, treeL0: 170, treeL1: 750, small: 95, loot: 28, terrain: [650, 1500], static: 1300, budgetMs: 2.0, clouds: 14 },
   medium: { houseL0: 90, houseL1: 560, houseL2: 1800, treeL0: 230, treeL1: 1050, small: 140, loot: 34, terrain: [850, 1900], static: 1800, budgetMs: 2.5, clouds: 26 },
   high: { houseL0: 115, houseL1: 760, houseL2: 2400, treeL0: 310, treeL1: 1450, small: 200, loot: 42, terrain: [1100, 2400], static: 2400, budgetMs: 3.0, clouds: 42 },
@@ -29,7 +30,7 @@ export const PROFILES = {
   max: { houseL0: 170, houseL1: 1250, houseL2: 4200, treeL0: 520, treeL1: 2600, small: 350, loot: 56, terrain: [1800, 3800], static: 4200, budgetMs: 4.0, clouds: 76 }
 };
 
-const HC = 128; // house cell size
+const HC = 64; // house cell size (small cells: full interiors are only generated for houses near the player)
 const NXH = Math.ceil(WORLD / HC);
 const SC = 320; // landmark cell size
 const NXS = Math.ceil(WORLD / SC);
@@ -360,7 +361,7 @@ export class WorldStreamer {
 
     // --- house cells: LOD selection
     if (this.frame % 2 === 0 || this.frame < 4) {
-      let l0 = 0, l1 = 0, l2 = 0, hid = 0;
+      let l0 = 0, l1 = 0, l2 = 0, hid = 0, colLoads = 0;
       for (const r of this.recList) {
         const d = aabbDist(cam.x, cam.z, r.x0, r.z0, r.x1, r.z1);
         let target = d < R0 ? 0 : d < R1 ? 1 : d < R2 ? 2 : -1;
@@ -374,7 +375,7 @@ export class WorldStreamer {
           if (target >= 1 && r.cache[target]) this._apply(r, target, r.cache[target], false);
           else if (r.lod < 0) this._apply(r, 2, r.cache[2], false); // instant placeholder while the real LOD builds
         }
-        if (d < R0 + 80) this._ensureColliders(r);
+        if (d < R0 + 80) { if (colLoads < 2 && !this.colCells.has(r.key)) { colLoads++; this._ensureColliders(r); } }
         else if (this.colCells.has(r.key) && d > R0 + 200 && this.frame - r.colUsed > 300) this.colCells.delete(r.key);
         if (r.lod === 0) l0++; else if (r.lod === 1) l1++; else if (r.lod === 2) l2++;
         if (r.hidden) hid++;

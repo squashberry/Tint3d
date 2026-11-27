@@ -50,6 +50,7 @@ class SpatialHash {
   }
 }
 
+const FOG = { optimised: [500, 1900], low: [700, 2700], medium: [900, 3700], high: [1200, 5000], veryhigh: [1500, 6600], max: [1800, 8600] };
 const tierName = (q) => (typeof q === 'string' ? q : q?.tier || q?.name || 'medium');
 
 export function createSplatIsland(opts = {}) {
@@ -152,6 +153,12 @@ export function createSplatIsland(opts = {}) {
       tier = n;
       streamer?.setTier(n);
       sky?.setCloudCount(PROFILES[n].clouds);
+    },
+    // Call every frame after the game's QualityManager: keeps the far plane and fog suited to a battle-royale map
+    // (the arena tiers pull the far plane in to ~130-190 m, which would delete the whole island).
+    applyView(camera, scene) {
+      sky?.configureCamera(camera);
+      if (scene?.fog) { const f = FOG[tier] || FOG.medium; scene.fog.near = f[0]; scene.fog.far = f[1]; if (sky) scene.fog.color.copy(sky.fogColor); }
     },
     get tier() { return tier; },
     configureCamera(camera) { sky?.configureCamera(camera); },

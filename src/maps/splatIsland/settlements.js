@@ -164,10 +164,10 @@ export function planSettlements(T, seed = 77) {
       const sdz = poi.coast[1] / sd;
       const ang0 = Math.atan2(sdx, sdz);
       gridTown({ ...poi, r: poi.r }, {
-        style: 'harbor', S: 44, maxR: poi.r * 0.9, ang0, lots: () => 2,
+        style: 'harbor', S: 44, maxR: poi.r * 0.96, ang0, lots: () => 2,
         kindFor: (d, rnd, lx, lz) => (lz > -80 ? (rnd() < 0.6 ? 'warehouse' : 'shop') : roster([[0.45, 'house'], [0.3, 'cottage'], [0.15, 'apartment'], [0.1, 'shop']])(rnd)),
-        accept: (lx, lz) => lz < -48 && Math.abs(lx) < 100,
-        skipBlock: (lx, lz) => lz > -20
+        accept: (lx, lz) => lz < -34 && Math.abs(lx) < 112,
+        skipBlock: (lx, lz) => lz > -8
       });
     }
   }
