@@ -9,7 +9,7 @@ import { createOperatorGroup, attachRigid } from './operators/index.js';
 import { WEAPONS, BOT_WEAPONS } from './gameplay/weapons.js';
 import { createItems, ITEM_ORDER } from './gameplay/items.js';
 import { createPixelBurst } from './gameplay/burst.js';
-import { QualityManager } from './graphics/quality.js';
+import { QualityManager, isWeakGpu } from './graphics/quality.js';
 import { MatchIntro } from './intro/matchIntro.js';
 import { NavGrid } from './ai/nav.js';
 import { createBotBrain } from './ai/botBrain.js';
@@ -123,7 +123,7 @@ scene.add(skyDome);
 
 const camera = new THREE.PerspectiveCamera(66, innerWidth / innerHeight, 0.1, 280);
 const renderer = new THREE.WebGLRenderer({
-  antialias: true,
+  antialias: !isWeakGpu(),
   alpha: false,
   powerPreference: 'high-performance',
   stencil: false,
@@ -3420,13 +3420,19 @@ function animateActor(actor, moving, delta = 0.016) {
   if (c.animator && actor.group.visible) {
     // Distant bots skip the weapon-grip IK and finger pass.
     const detail = actor.player || camera.position.distanceToSquared(actor.group.position) < (quality.lite ? 480 : 1444) ? 1 : 0;
-    c.animator.update(delta, actor, c.weapon, {
-      weaponBlend: c.weaponBlend,
-      shotTimer: shot,
-      shooting: clamp(shot / 0.30, 0, 1),
-      isPlayer: actor.player,
-      drink: actor.drinkBlend || 0
-    }, detail);
+    // Cheap tiers update far-away bots only every third frame (with the accumulated time step).
+    actor.skipDt = (actor.skipDt || 0) + delta;
+    const farSq = camera.position.distanceToSquared(actor.group.position);
+    if (!quality.cheap || actor.player || farSq < 484 || delta === 0 || (actor.skipTick = ((actor.skipTick || 0) + 1) % 3) === 0) {
+      c.animator.update(delta === 0 ? 0 : actor.skipDt, actor, c.weapon, {
+        weaponBlend: c.weaponBlend,
+        shotTimer: shot,
+        shooting: clamp(shot / 0.30, 0, 1),
+        isPlayer: actor.player,
+        drink: actor.drinkBlend || 0
+      }, detail);
+      actor.skipDt = 0;
+    }
   }
 
   actor.recoil = Math.max(0, (actor.recoil || 0) - delta * 2.8);
@@ -3924,7 +3930,23 @@ if (quality.profile.software) {
   setTimeout(() => showToast('SOFTWARE GRAPHICS DETECTED  /  TURN ON BROWSER HARDWARE ACCELERATION'), 6000);
 }
 let miniFrame = 0;
+let fpsClock = 0;
 function updateHudExtras(delta) {
+  fpsClock += delta;
+  if (fpsClock > 1) {
+    fpsClock = 0;
+    const gfx = document.getElementById('quality-toggle');
+    if (gfx) gfx.textContent = 'GFX ' + quality.label + ' · ' + Math.round(quality.fps || 0) + ' FPS';
+    // Cheap tiers also hide the extra character geometry (hair, beards, ink tanks) on bots.
+    for (const actor of actors) {
+      if (actor.player) continue;
+      const op = actor.group.userData.character?.operator;
+      if (!op) continue;
+      if (op.hairMesh) op.hairMesh.visible = !quality.cheap;
+      if (op.beardMesh) op.beardMesh.visible = !quality.cheap;
+      if (op.tank) op.tank.visible = !quality.cheap;
+    }
+  }
   hudClock += delta;
   if (hudClock < 0.066 || !gameStarted) return;
   hudClock = 0;

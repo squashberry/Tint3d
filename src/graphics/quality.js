@@ -12,7 +12,7 @@ export const TIER_ORDER = ['optimised', 'low', 'medium', 'high', 'veryhigh', 'ma
 export const TIER_LABEL = { auto: 'AUTO', optimised: 'OPTIMISED', low: 'LOW', medium: 'MEDIUM', high: 'HIGH', veryhigh: 'VERY HIGH', max: 'MAX' };
 
 const TIERS = {
-  optimised: { pixel: 0.75, shadow: 0, aniso: 1, bloom: 0, grade: false, env: 0, fx: 0.3, dust: 0, msaa: 0 },
+  optimised: { pixel: 0.6, shadow: 0, aniso: 1, bloom: 0, grade: false, env: 0, fx: 0.3, dust: 0, msaa: 0 },
   low:      { pixel: 0.85, shadow: 0,    aniso: 2,  bloom: 0,    grade: false, env: 0,    fx: 0.5,  dust: 0,   msaa: 0 },
   medium:   { pixel: 1.0,  shadow: 1024, aniso: 4,  bloom: 0,    grade: false, env: 0.38, fx: 0.75, dust: 0,   msaa: 0 },
   high:     { pixel: 1.25, shadow: 1536, aniso: 8,  bloom: 0.26, grade: true,  env: 0.5,  fx: 1.0,  dust: 90,  msaa: 4 },
@@ -62,6 +62,19 @@ function detectProfile(renderer, isTouch) {
   return { score, gpu, software, start: 'high', cap: 'veryhigh' };
 }
 
+/** True when the GPU looks weak or software-rendered (used to skip MSAA before the renderer exists). */
+export function isWeakGpu() {
+  try {
+    const canvas = document.createElement('canvas');
+    const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+    if (!gl) return true;
+    const info = gl.getExtension('WEBGL_debug_renderer_info');
+    const gpu = info ? String(gl.getParameter(info.UNMASKED_RENDERER_WEBGL)) : '';
+    gl.getExtension('WEBGL_lose_context')?.loseContext();
+    return /SwiftShader|llvmpipe|Basic Render|HD Graphics [2-5]\d{3}|GMA|Mali-4|PowerVR/i.test(gpu) || (navigator.hardwareConcurrency || 4) <= 2;
+  } catch { return true; }
+}
+
 export class QualityManager {
   constructor({ renderer, scene, camera, sun, isTouch, onFx }) {
     this.renderer = renderer;
@@ -80,7 +93,10 @@ export class QualityManager {
     if (this.preference !== 'auto' && !TIERS[this.preference]) this.preference = 'auto';
     this.profile = detectProfile(renderer, isTouch);
     this.autoCap = this.profile.cap;
-    this.dynScale = 1;
+    this.dynScale = this.profile.software && this.tier === 'optimised' ? 0.6 : 1;
+    this.fps = 60;
+    this.cheap = false;
+    this.scanTimer = 0;
     this.dynMin = this.profile.software ? 0.3 : 0.5;
     this.lite = false;
     this.tier = this.preference === 'auto' ? this.profile.start : this.preference;
@@ -176,7 +192,8 @@ export class QualityManager {
   apply(tierName) {
     const settings = TIERS[tierName];
     this.tier = tierName;
-    if (tierName !== 'optimised') this.dynScale = 1;
+    const dynTier = tierName === 'optimised' || (tierName === 'low' && this.profile.score >= 2);
+    if (!dynTier) this.dynScale = 1;
     const r = this.renderer;
     r.setPixelRatio(Math.min(devicePixelRatio || 1, settings.pixel) * this.dynScale);
     r.setSize(this.width, this.height);
@@ -229,6 +246,8 @@ export class QualityManager {
     }
     // Low tiers also pull in the far plane and fog so distant geometry is never drawn.
     this.lite = tierName === 'optimised' || tierName === 'low';
+    // Weak or software GPUs: swap every lit material for a cheap Lambert twin (no clear-coat/bump/PBR).
+    this.setCheapMaterials(tierName === 'optimised' || this.profile.software || (tierName === 'low' && this.profile.score >= 2));
     if (this._farOrig === undefined) {
       this._farOrig = this.camera.far;
       this._fogFar = this.scene.fog?.far;
@@ -241,6 +260,40 @@ export class QualityManager {
       this.scene.fog.near = tierName === 'optimised' ? 40 : this._fogNear;
     }
     this.onFx(settings.fx);
+  }
+
+  swapMaterials(on) {
+    if (!this.twins) this.twins = new WeakMap();
+    const cheapOf = (m) => {
+      let twin = this.twins.get(m);
+      if (!twin) {
+        twin = new THREE.MeshLambertMaterial({
+          color: m.color.clone(), map: m.map || null, emissive: m.emissive.clone().multiplyScalar(Math.min(1.5, m.emissiveIntensity || 1)),
+          transparent: m.transparent, opacity: m.opacity, side: m.side, alphaTest: m.alphaTest, vertexColors: m.vertexColors, fog: true
+        });
+        twin.userData.original = m;
+        this.twins.set(m, twin);
+      }
+      return twin;
+    };
+    this.scene.traverse((o) => {
+      if (!o.material || o.isPoints || o.isSprite) return;
+      const list = Array.isArray(o.material) ? o.material : [o.material];
+      const next = list.map((m) => {
+        if (on && m.isMeshStandardMaterial) return cheapOf(m);
+        if (!on && m.userData?.original) return m.userData.original;
+        return m;
+      });
+      if (next.some((m, i) => m !== list[i])) o.material = Array.isArray(o.material) ? next : next[0];
+    });
+  }
+
+  setCheapMaterials(on) {
+    this.cheapWanted = on;
+    if (on === this.cheap) return;
+    this.cheap = on;
+    this.swapMaterials(on);
+    this.scanTimer = 0;
   }
 
   /** Re-apply the pixel ratio after the dynamic resolution scale changed. */
@@ -265,6 +318,11 @@ export class QualityManager {
     const now = performance.now();
     const dt = now - this.lastStamp;
     this.lastStamp = now;
+    if (dt > 0 && dt < 1000) this.fps = this.fps * 0.92 + (1000 / dt) * 0.08;
+    if (this.cheap) {
+      this.scanTimer += dt / 1000;
+      if (this.scanTimer > 2) { this.scanTimer = 0; this.swapMaterials(true); }
+    }
     if (this.dust?.visible && focus) {
       const t = now * 0.00004;
       const p = this.dust.geometry.attributes.position;
@@ -286,13 +344,14 @@ export class QualityManager {
     this.frames.length = 0;
     const index = TIER_ORDER.indexOf(this.tier);
     // OPTIMISED also scales the render resolution live (down to 50%) to hold a playable frame rate.
-    if (this.tier === 'optimised' && avg > 30 && this.dynScale > this.dynMin) {
+    const dynTier = this.tier === 'optimised' || (this.tier === 'low' && this.profile.score >= 2);
+    if (dynTier && avg > 30 && this.dynScale > this.dynMin) {
       this.dynScale = Math.max(this.dynMin, this.dynScale - (this.profile.software ? 0.15 : 0.08));
       this.refreshPixelRatio();
       this.cooldown = 1.5;
       return;
     }
-    if (this.tier === 'optimised' && avg < 17 && this.dynScale < 1) {
+    if (dynTier && avg < 17 && this.dynScale < 1) {
       this.dynScale = Math.min(1, this.dynScale + 0.05);
       this.refreshPixelRatio();
       return;
