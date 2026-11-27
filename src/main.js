@@ -3920,6 +3920,9 @@ const chipYou = document.getElementById('chip-you');
 const chipRival = document.getElementById('chip-rival');
 const chipSplats = document.getElementById('chip-splats');
 let hudClock = 0;
+if (quality.profile.software) {
+  setTimeout(() => showToast('SOFTWARE GRAPHICS DETECTED  /  TURN ON BROWSER HARDWARE ACCELERATION'), 6000);
+}
 let miniFrame = 0;
 function updateHudExtras(delta) {
   hudClock += delta;

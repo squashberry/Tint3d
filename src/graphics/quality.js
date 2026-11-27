@@ -55,10 +55,11 @@ function detectProfile(renderer, isTouch) {
   if (cores <= 2) score += 2; else if (cores <= 4) score += 1;
   if (memory <= 2) score += 2; else if (memory <= 4) score += 1;
   if (isTouch && Math.min(screen.width, screen.height) * (devicePixelRatio || 1) > 1400 && cores <= 6) score += 0.5;
-  if (score >= 3) return { score, gpu, start: 'optimised', cap: 'low' };
-  if (score >= 2) return { score, gpu, start: 'low', cap: 'medium' };
-  if (isTouch) return { score, gpu, start: 'medium', cap: 'high' };
-  return { score, gpu, start: 'high', cap: 'veryhigh' };
+  const software = /SwiftShader|llvmpipe|Basic Render/i.test(gpu);
+  if (score >= 3) return { score, gpu, software, start: 'optimised', cap: 'low' };
+  if (score >= 2) return { score, gpu, software, start: 'low', cap: 'medium' };
+  if (isTouch) return { score, gpu, software, start: 'medium', cap: 'high' };
+  return { score, gpu, software, start: 'high', cap: 'veryhigh' };
 }
 
 export class QualityManager {
@@ -80,6 +81,7 @@ export class QualityManager {
     this.profile = detectProfile(renderer, isTouch);
     this.autoCap = this.profile.cap;
     this.dynScale = 1;
+    this.dynMin = this.profile.software ? 0.3 : 0.5;
     this.lite = false;
     this.tier = this.preference === 'auto' ? this.profile.start : this.preference;
     this.frames = [];
@@ -284,8 +286,8 @@ export class QualityManager {
     this.frames.length = 0;
     const index = TIER_ORDER.indexOf(this.tier);
     // OPTIMISED also scales the render resolution live (down to 50%) to hold a playable frame rate.
-    if (this.tier === 'optimised' && avg > 30 && this.dynScale > 0.5) {
-      this.dynScale = Math.max(0.5, this.dynScale - 0.08);
+    if (this.tier === 'optimised' && avg > 30 && this.dynScale > this.dynMin) {
+      this.dynScale = Math.max(this.dynMin, this.dynScale - (this.profile.software ? 0.15 : 0.08));
       this.refreshPixelRatio();
       this.cooldown = 1.5;
       return;
